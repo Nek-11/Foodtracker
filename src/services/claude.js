@@ -1,9 +1,16 @@
 import { dataUrlToBase64, dataUrlToMediaType } from '../utils/imageUtils.js'
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages'
-const MODEL = 'claude-sonnet-4-6'
 
-const SYSTEM_PROMPT = `You are a precise nutrition analysis assistant. Your job is to analyze food images and/or text descriptions and return structured nutrition estimates.
+// thinking budget → (budget_tokens, max_tokens)
+// max_tokens must exceed budget_tokens
+const THINKING_CONFIG = {
+  low:    { budget_tokens: 1024,  max_tokens: 5000  },
+  medium: { budget_tokens: 5000,  max_tokens: 12000 },
+  high:   { budget_tokens: 10000, max_tokens: 18000 },
+}
+
+export const SYSTEM_PROMPT = `You are a precise nutrition analysis assistant. Your job is to analyze food images and/or text descriptions and return structured nutrition estimates.
 
 CRITICAL: You MUST always return valid JSON matching the exact schema below — nothing else, no markdown, no explanation outside the JSON.
 
@@ -46,17 +53,11 @@ Rules:
 - Round all numbers to the nearest integer.
 - Sodium in mg, everything else in grams or kcal.`
 
-/**
- * Analyze a meal using the Claude API.
- *
- * @param {object} params
- * @param {string} params.apiKey         - Anthropic API key
- * @param {string|null} params.foodImage  - base64 data URL of the food photo (or null)
- * @param {string|null} params.labelImage - base64 data URL of nutrition label (or null)
- * @param {string} params.note           - text/voice note describing the meal
- * @returns {Promise<object>} parsed analysis object
- */
-export async function analyzeMeal({ apiKey, foodImage, labelImage, note }) {
+function buildContent(foodImage, labelImage, note) {
+  if (!foodImage && !note?.trim()) {
+    throw new Error('Provide at least a food image or a meal description.')
+  }
+
   const content = []
 
   if (foodImage) {
@@ -85,19 +86,21 @@ export async function analyzeMeal({ apiKey, foodImage, labelImage, note }) {
     })
   }
 
-  // Build the user text
-  let userText = ''
+  let userText
   if (foodImage && !note) {
     userText = 'Please analyze the food in this image and return the nutrition breakdown as JSON.'
   } else if (foodImage && note) {
     userText = `Please analyze the food in this image. Additional context: "${note}". Return the nutrition breakdown as JSON.`
-  } else if (!foodImage && note) {
-    userText = `I have no photo. Here is my meal description: "${note}". Based on typical portion sizes, return a nutrition breakdown as JSON.`
   } else {
-    throw new Error('Provide at least a food image or a meal description.')
+    userText = `I have no photo. Here is my meal description: "${note}". Based on typical portion sizes, return a nutrition breakdown as JSON.`
   }
 
   content.push({ type: 'text', text: userText })
+  return content
+}
+
+async function callClaude({ apiKey, model, reasoningEffort, content }) {
+  const { budget_tokens, max_tokens } = THINKING_CONFIG[reasoningEffort] ?? THINKING_CONFIG.medium
 
   const response = await fetch(CLAUDE_API_URL, {
     method: 'POST',
@@ -108,8 +111,9 @@ export async function analyzeMeal({ apiKey, foodImage, labelImage, note }) {
       'anthropic-dangerous-direct-browser-calls': 'true',
     },
     body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 1024,
+      model,
+      max_tokens,
+      thinking: { type: 'enabled', budget_tokens },
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content }],
     }),
@@ -117,37 +121,35 @@ export async function analyzeMeal({ apiKey, foodImage, labelImage, note }) {
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}))
-    const msg = err?.error?.message || `API error ${response.status}`
-    throw new Error(msg)
+    throw new Error(err?.error?.message || `Claude API error ${response.status}`)
   }
 
   const data = await response.json()
-  const raw = data.content?.[0]?.text?.trim()
+  // With thinking enabled, content blocks include a 'thinking' block and a 'text' block
+  const textBlock = data.content?.find(b => b.type === 'text')
+  const raw = textBlock?.text?.trim() ?? ''
 
-  // Strip markdown code fences if model wrapped response anyway
   const cleaned = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
 
-  let parsed
   try {
-    parsed = JSON.parse(cleaned)
+    return JSON.parse(cleaned)
   } catch {
     throw new Error('Claude returned an unexpected response format. Please try again.')
   }
-
-  return parsed
 }
 
-/**
- * Re-analyze a meal with a follow-up clarification note.
- * Sends the original analysis summary + user's clarification.
- */
-export async function reanalyzeMeal({ apiKey, foodImage, labelImage, note, previousAnalysis }) {
-  const clarificationNote = `
-Previously estimated: ${previousAnalysis.mealSummary}
+export async function analyzeMeal({ apiKey, model, reasoningEffort, foodImage, labelImage, note }) {
+  const content = buildContent(foodImage, labelImage, note)
+  return callClaude({ apiKey, model, reasoningEffort, content })
+}
+
+export async function reanalyzeMeal({ apiKey, model, reasoningEffort, foodImage, labelImage, note, previousAnalysis }) {
+  const clarificationNote = `Previously estimated: ${previousAnalysis.mealSummary}
 Flagged questions were: ${previousAnalysis.questions.join('; ')}
 User clarification: "${note}"
 
-Please re-analyze with this additional information and return updated JSON.`.trim()
+Please re-analyze with this additional information and return updated JSON.`
 
-  return analyzeMeal({ apiKey, foodImage, labelImage, note: clarificationNote })
+  const content = buildContent(foodImage, labelImage, clarificationNote)
+  return callClaude({ apiKey, model, reasoningEffort, content })
 }

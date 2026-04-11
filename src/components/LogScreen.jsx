@@ -1,8 +1,8 @@
 import { useState, useRef, useCallback } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { compressImage, makeThumbnail } from '../utils/imageUtils.js'
-import { analyzeMeal, reanalyzeMeal } from '../services/claude.js'
-import { saveMeal, getSettings } from '../services/storage.js'
+import { analyzeMeal, reanalyzeMeal } from '../services/analyzer.js'
+import { saveMeal } from '../services/storage.js'
 import { startListening, isSpeechSupported } from '../services/speech.js'
 import { fmt } from '../utils/nutritionUtils.js'
 import AnalysisResult from './AnalysisResult.jsx'
@@ -108,11 +108,6 @@ export default function LogScreen({ onMealSaved }) {
   // --- Analysis ---
 
   async function handleAnalyze() {
-    const settings = getSettings()
-    if (!settings.claudeApiKey) {
-      setError('No API key set. Go to Settings and enter your Claude API key.')
-      return
-    }
     if (!foodImage && !note.trim()) {
       setError('Add a photo or describe your meal.')
       return
@@ -123,7 +118,6 @@ export default function LogScreen({ onMealSaved }) {
 
     try {
       const result = await analyzeMeal({
-        apiKey: settings.claudeApiKey,
         foodImage: foodImage || null,
         labelImage: labelImage || null,
         note: note.trim(),
@@ -139,12 +133,10 @@ export default function LogScreen({ onMealSaved }) {
   }
 
   async function handleReanalyze(clarificationNote) {
-    const settings = getSettings()
     setMode(MODE_LOADING)
     setError(null)
     try {
       const result = await reanalyzeMeal({
-        apiKey: settings.claudeApiKey,
         foodImage: foodImage || null,
         labelImage: labelImage || null,
         note: clarificationNote,
@@ -214,14 +206,21 @@ export default function LogScreen({ onMealSaved }) {
 
   if (mode === MODE_RESULT && analysis) {
     return (
-      <AnalysisResult
-        analysis={analysis}
-        thumbnail={thumbnail}
-        onSave={handleSave}
-        onDiscard={handleDiscard}
-        onReanalyze={handleReanalyze}
-        error={error}
-      />
+      <div className="flex flex-col h-full overflow-hidden">
+        {analysis._isMock && (
+          <div className="mx-4 mt-3 flex-shrink-0 bg-amber-900/40 border border-amber-700 rounded-xl px-4 py-2.5 text-sm text-amber-300">
+            Demo mode — add an API key in Settings to analyze real meals.
+          </div>
+        )}
+        <AnalysisResult
+          analysis={analysis}
+          thumbnail={thumbnail}
+          onSave={handleSave}
+          onDiscard={handleDiscard}
+          onReanalyze={handleReanalyze}
+          error={error}
+        />
+      </div>
     )
   }
 
