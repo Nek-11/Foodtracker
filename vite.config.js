@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
-  base: '/foodtracker/',
+  base: '/Foodtracker/',
   plugins: [
     react(),
     VitePWA({
@@ -17,7 +17,7 @@ export default defineConfig({
         background_color: '#0f172a',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/foodtracker/',
+        start_url: '/Foodtracker/',
         icons: [
           {
             src: 'icons/icon-192.png',
