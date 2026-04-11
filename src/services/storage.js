@@ -1,31 +1,29 @@
-// localStorage keys
 const KEYS = {
-  MEALS: 'ft_meals',
-  GOALS: 'ft_goals',
+  MEALS:    'ft_meals',
+  GOALS:    'ft_goals',
   SETTINGS: 'ft_settings',
+  PENDING:  'ft_pending',   // { [mealId]: { foodImage, labelImage, note } }
 }
 
-// Default daily goals for an athletic 29-year-old male
 const DEFAULT_GOALS = {
   calories: 2600,
   proteinG: 160,
-  carbsG: 300,
-  sugarG: 60,
-  fatG: 85,
-  fiberG: 30,
+  carbsG:   300,
+  sugarG:   60,
+  fatG:     85,
+  fiberG:   30,
   sodiumMg: 2300,
 }
 
 const DEFAULT_SETTINGS = {
-  provider: 'claude',
+  provider:     'claude',
   claudeApiKey: '',
-  claudeModel: 'claude-sonnet-4-6',
   openaiApiKey: '',
-  openaiModel: 'o4-mini',
-  reasoningEffort: 'medium',
+  resetHour:    2,    // meals logged before 2am count as "previous day"
+  theme:        'dark',
 }
 
-// --- Meals ---
+// ─── Meals ───────────────────────────────────────────────────────────────────
 
 export function getMeals() {
   try {
@@ -37,26 +35,86 @@ export function getMeals() {
 
 export function saveMeal(meal) {
   const meals = getMeals()
-  const existing = meals.findIndex(m => m.id === meal.id)
-  if (existing >= 0) {
-    meals[existing] = meal
+  const idx = meals.findIndex(m => m.id === meal.id)
+  if (idx >= 0) {
+    meals[idx] = meal
   } else {
-    meals.unshift(meal) // newest first
+    meals.unshift(meal)
   }
-  // Keep at most 200 meals to avoid filling localStorage
-  const trimmed = meals.slice(0, 200)
-  localStorage.setItem(KEYS.MEALS, JSON.stringify(trimmed))
+  localStorage.setItem(KEYS.MEALS, JSON.stringify(meals.slice(0, 200)))
   return meal
+}
+
+export function updateMeal(id, updates) {
+  const meals = getMeals()
+  const idx = meals.findIndex(m => m.id === id)
+  if (idx >= 0) {
+    meals[idx] = { ...meals[idx], ...updates }
+    localStorage.setItem(KEYS.MEALS, JSON.stringify(meals))
+  }
 }
 
 export function deleteMeal(id) {
   const meals = getMeals().filter(m => m.id !== id)
   localStorage.setItem(KEYS.MEALS, JSON.stringify(meals))
+  clearPendingData(id)
+}
+
+// ─── Pending data (image/note for retry after crash) ─────────────────────────
+
+function getPendingStore() {
+  try {
+    return JSON.parse(localStorage.getItem(KEYS.PENDING) || '{}')
+  } catch {
+    return {}
+  }
+}
+
+export function savePendingData(id, data) {
+  const store = getPendingStore()
+  store[id] = data
+  localStorage.setItem(KEYS.PENDING, JSON.stringify(store))
+}
+
+export function getPendingData(id) {
+  return getPendingStore()[id] || null
+}
+
+export function clearPendingData(id) {
+  const store = getPendingStore()
+  delete store[id]
+  localStorage.setItem(KEYS.PENDING, JSON.stringify(store))
+}
+
+// ─── Date helpers (configurable day-reset hour) ───────────────────────────────
+
+/** Return 'YYYY-MM-DD' in local time, with the day counting past midnight up to resetHour. */
+export function getDateKey(isoTimestamp, resetHour = 0) {
+  const d = new Date(isoTimestamp)
+  if (d.getHours() < resetHour) {
+    d.setDate(d.getDate() - 1)
+  }
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/** Local-time today key. */
+function todayKey() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 export function getMealsByDate(dateStr) {
-  // dateStr = 'YYYY-MM-DD'
-  return getMeals().filter(m => m.timestamp.startsWith(dateStr))
+  const { resetHour = 2 } = getSettings()
+  return getMeals().filter(m =>
+    m.status !== 'analyzing' &&
+    getDateKey(m.timestamp, resetHour) === dateStr
+  )
 }
 
 export function getDailyTotals(dateStr) {
@@ -69,7 +127,10 @@ export function getLast7DaysTotals() {
   for (let i = 6; i >= 0; i--) {
     const d = new Date()
     d.setDate(d.getDate() - i)
-    const dateStr = d.toISOString().slice(0, 10)
+    const y = d.getFullYear()
+    const mon = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    const dateStr = `${y}-${mon}-${day}`
     days.push({ date: dateStr, totals: getDailyTotals(dateStr) })
   }
   return days
@@ -83,7 +144,7 @@ function sumMacros(totalsArray) {
   }, { ...zero })
 }
 
-// --- Goals ---
+// ─── Goals ───────────────────────────────────────────────────────────────────
 
 export function getGoals() {
   try {
@@ -98,7 +159,7 @@ export function saveGoals(goals) {
   localStorage.setItem(KEYS.GOALS, JSON.stringify(goals))
 }
 
-// --- Settings ---
+// ─── Settings ────────────────────────────────────────────────────────────────
 
 export function getSettings() {
   try {
@@ -111,4 +172,46 @@ export function getSettings() {
 
 export function saveSettings(settings) {
   localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings))
+}
+
+// ─── Export / Import ─────────────────────────────────────────────────────────
+
+export function exportHistory() {
+  const meals = getMeals()
+  const payload = { version: 1, exportedAt: new Date().toISOString(), meals }
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `foodtracker-${new Date().toISOString().slice(0, 10)}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+export function importHistory(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = e => {
+      try {
+        const data = JSON.parse(e.target.result)
+        const imported = Array.isArray(data) ? data : (data.meals || [])
+        const existing = getMeals()
+        // existing wins on conflict (preserve local edits)
+        const byId = {}
+        imported.forEach(m => { byId[m.id] = m })
+        existing.forEach(m => { byId[m.id] = m })
+        const merged = Object.values(byId)
+          .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+          .slice(0, 200)
+        localStorage.setItem(KEYS.MEALS, JSON.stringify(merged))
+        resolve(merged.length)
+      } catch {
+        reject(new Error('Invalid file — expected a Foodtracker JSON export.'))
+      }
+    }
+    reader.onerror = () => reject(new Error('Failed to read file.'))
+    reader.readAsText(file)
+  })
 }

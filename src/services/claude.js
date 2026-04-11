@@ -99,8 +99,10 @@ function buildContent(foodImage, labelImage, note) {
   return content
 }
 
-async function callClaude({ apiKey, model, reasoningEffort, content }) {
-  const { budget_tokens, max_tokens } = THINKING_CONFIG[reasoningEffort] ?? THINKING_CONFIG.medium
+async function callClaude({ apiKey, model, reasoningEffort, budgetTokens, maxTokens, content }) {
+  const cfg = THINKING_CONFIG[reasoningEffort] ?? THINKING_CONFIG.medium
+  const budget_tokens = budgetTokens ?? cfg.budget_tokens
+  const max_tokens    = maxTokens    ?? cfg.max_tokens
 
   const response = await fetch(CLAUDE_API_URL, {
     method: 'POST',
@@ -138,12 +140,12 @@ async function callClaude({ apiKey, model, reasoningEffort, content }) {
   }
 }
 
-export async function analyzeMeal({ apiKey, model, reasoningEffort, foodImage, labelImage, note }) {
+export async function analyzeMeal({ apiKey, model, reasoningEffort, budgetTokens, maxTokens, foodImage, labelImage, note }) {
   const content = buildContent(foodImage, labelImage, note)
-  return callClaude({ apiKey, model, reasoningEffort, content })
+  return callClaude({ apiKey, model, reasoningEffort, budgetTokens, maxTokens, content })
 }
 
-export async function reanalyzeMeal({ apiKey, model, reasoningEffort, foodImage, labelImage, note, previousAnalysis }) {
+export async function reanalyzeMeal({ apiKey, model, reasoningEffort, budgetTokens, maxTokens, foodImage, labelImage, note, previousAnalysis }) {
   const clarificationNote = `Previously estimated: ${previousAnalysis.mealSummary}
 Flagged questions were: ${previousAnalysis.questions.join('; ')}
 User clarification: "${note}"
@@ -151,5 +153,5 @@ User clarification: "${note}"
 Please re-analyze with this additional information and return updated JSON.`
 
   const content = buildContent(foodImage, labelImage, clarificationNote)
-  return callClaude({ apiKey, model, reasoningEffort, content })
+  return callClaude({ apiKey, model, reasoningEffort, budgetTokens, maxTokens, content })
 }

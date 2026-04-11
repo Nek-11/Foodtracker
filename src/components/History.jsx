@@ -1,51 +1,113 @@
-import { useState, useEffect } from 'react'
-import { getMeals, deleteMeal } from '../services/storage.js'
-import { fmt, formatDate, formatTime, groupByDate, MACRO_LABELS } from '../utils/nutritionUtils.js'
+import { useState, useEffect, useRef } from 'react'
+import { ClipboardList, ChevronDown, ChevronUp, Trash2, RefreshCw, Pencil, Check, X, AlertTriangle, Loader } from 'lucide-react'
+import { getMeals, deleteMeal, updateMeal, getPendingData, clearPendingData } from '../services/storage.js'
+import { analyzeMeal } from '../services/analyzer.js'
+import { fmt, formatDate, formatTime, MACRO_LABELS } from '../utils/nutritionUtils.js'
+import { getSettings } from '../services/storage.js'
 
-export default function History({ refreshKey }) {
-  const [meals, setMeals] = useState([])
+function getDateKeyLocal(isoTimestamp, resetHour) {
+  const d = new Date(isoTimestamp)
+  if (d.getHours() < resetHour) d.setDate(d.getDate() - 1)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function groupByDate(meals, resetHour) {
+  const groups = {}
+  meals.forEach(meal => {
+    const key = getDateKeyLocal(meal.timestamp, resetHour)
+    if (!groups[key]) groups[key] = []
+    groups[key].push(meal)
+  })
+  return Object.entries(groups).sort(([a], [b]) => b.localeCompare(a))
+}
+
+export default function History({ refreshKey, onRefresh }) {
+  const [meals,    setMeals]    = useState([])
   const [expanded, setExpanded] = useState(null)
+  const resetHour = getSettings().resetHour ?? 2
 
-  useEffect(() => {
+  function refresh() {
     setMeals(getMeals())
-  }, [refreshKey])
+  }
+
+  useEffect(() => { refresh() }, [refreshKey])
+
+  // Poll while any meal is analyzing
+  useEffect(() => {
+    const hasAnalyzing = meals.some(m => m.status === 'analyzing')
+    if (!hasAnalyzing) return
+    const interval = setInterval(refresh, 1500)
+    return () => clearInterval(interval)
+  }, [meals])
+
+  async function handleRetry(meal) {
+    const pending = getPendingData(meal.id)
+    if (!pending) return
+
+    updateMeal(meal.id, { status: 'analyzing', errorMessage: null })
+    refresh()
+
+    try {
+      const analysis = await analyzeMeal({
+        foodImage:  pending.foodImage  || null,
+        labelImage: pending.labelImage || null,
+        note:       pending.note       || '',
+      })
+      updateMeal(meal.id, { analysis, status: 'done' })
+      clearPendingData(meal.id)
+    } catch (err) {
+      const msg = err instanceof TypeError
+        ? 'Network error — check your connection and API key.'
+        : err.message
+      updateMeal(meal.id, { status: 'error', errorMessage: msg })
+    }
+    refresh()
+    if (onRefresh) onRefresh()
+  }
 
   function handleDelete(id) {
     deleteMeal(id)
-    setMeals(getMeals())
+    refresh()
     if (expanded === id) setExpanded(null)
+    if (onRefresh) onRefresh()
   }
 
-  const groups = groupByDate(meals)
+  function handleNoteUpdate(id, note) {
+    updateMeal(id, { userNotes: note })
+    refresh()
+  }
 
   if (!meals.length) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 px-8 text-center">
-        <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center">
-          <svg className="w-8 h-8 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-          </svg>
+        <div className="w-16 h-16 rounded-full bg-cream-200 dark:bg-pine-900 flex items-center justify-center">
+          <ClipboardList size={32} className="text-cream-400 dark:text-pine-600" />
         </div>
         <div>
-          <p className="text-slate-300 font-medium">No meals logged yet</p>
-          <p className="text-slate-500 text-sm mt-1">Head to Log to add your first meal</p>
+          <p className="font-medium text-pine-800 dark:text-cream-300">No meals logged yet</p>
+          <p className="text-sm mt-1 text-cream-500 dark:text-pine-500">Head to Log to add your first meal</p>
         </div>
       </div>
     )
   }
 
+  const groups = groupByDate(meals, resetHour)
+
   return (
     <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-8">
-      <div className="px-4 pt-6 pb-2">
-        <h1 className="text-2xl font-bold">History</h1>
-        <p className="text-slate-400 text-sm mt-0.5">{meals.length} meal{meals.length !== 1 ? 's' : ''} logged</p>
+      <div className="px-4 pb-2 pt-safe">
+        <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">History</h1>
+        <p className="text-sm mt-0.5 text-cream-500 dark:text-pine-400">{meals.length} meal{meals.length !== 1 ? 's' : ''} logged</p>
       </div>
 
       {groups.map(([date, dateMeals]) => (
         <section key={date} className="mx-4 mt-4">
           <div className="flex items-center justify-between mb-2 px-1">
-            <h2 className="text-sm font-semibold text-slate-400">{formatDate(date)}</h2>
-            <span className="text-xs text-slate-500">
+            <h2 className="text-sm font-semibold text-cream-600 dark:text-pine-400">{formatDate(date)}</h2>
+            <span className="text-xs text-cream-400 dark:text-pine-500">
               {fmt(dateMeals.reduce((s, m) => s + (m.analysis?.totals?.calories || 0), 0))} kcal
             </span>
           </div>
@@ -57,6 +119,8 @@ export default function History({ refreshKey }) {
                 isExpanded={expanded === meal.id}
                 onToggle={() => setExpanded(expanded === meal.id ? null : meal.id)}
                 onDelete={() => handleDelete(meal.id)}
+                onRetry={() => handleRetry(meal)}
+                onNoteUpdate={note => handleNoteUpdate(meal.id, note)}
               />
             ))}
           </div>
@@ -66,103 +130,208 @@ export default function History({ refreshKey }) {
   )
 }
 
-function MealCard({ meal, isExpanded, onToggle, onDelete }) {
-  const { analysis, thumbnail, timestamp, note } = meal
-  const totals = analysis?.totals || {}
+function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onNoteUpdate }) {
+  const { analysis, thumbnail, timestamp, note, status, errorMessage, userNotes, _isMock } = meal
+  const totals  = analysis?.totals || {}
   const flagged = analysis?.flagged
 
+  const isAnalyzing    = status === 'analyzing'
+  const isInterrupted  = status === 'interrupted'
+  const isError        = status === 'error'
+  const canRetry       = (isInterrupted || isError) && !!getPendingData(meal.id)
+
   return (
-    <div className={`bg-slate-800 rounded-2xl overflow-hidden transition-all ${flagged ? 'ring-1 ring-amber-700/50' : ''}`}>
+    <div className={`rounded-2xl overflow-hidden transition-all animate-fade-in ${
+      flagged
+        ? 'ring-1 ring-amber-400/30'
+        : isError || isInterrupted
+          ? 'ring-1 ring-red-400/30'
+          : 'ring-1 ring-transparent'
+    } bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800`}>
+
       {/* Summary row */}
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-slate-700 transition-colors"
-      >
+      <button onClick={onToggle}
+        className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-cream-100 dark:active:bg-pine-800 transition-colors">
+
+        {/* Thumbnail or icon */}
         {thumbnail ? (
           <img src={thumbnail} alt="" className="w-12 h-12 rounded-xl object-cover flex-shrink-0" />
         ) : (
-          <div className="w-12 h-12 rounded-xl bg-slate-700 flex items-center justify-center flex-shrink-0">
-            <svg className="w-6 h-6 text-slate-500" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3zm-1 1.93V19H9a1 1 0 000 2h6a1 1 0 000-2h-2v-2.07A5.003 5.003 0 0017 12v-1a1 1 0 00-2 0v1a3 3 0 01-6 0v-1a1 1 0 00-2 0v1a5.003 5.003 0 004 4.93z"/>
-            </svg>
+          <div className="w-12 h-12 rounded-xl bg-cream-200 dark:bg-pine-800 flex items-center justify-center flex-shrink-0">
+            {isAnalyzing
+              ? <Loader size={20} className="text-pine-400 animate-spin" />
+              : isError || isInterrupted
+                ? <AlertTriangle size={20} className="text-red-400" />
+                : <ClipboardList size={20} className="text-cream-400 dark:text-pine-500" />
+            }
           </div>
         )}
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <p className="text-sm font-medium text-white truncate">
-              {analysis?.mealSummary || note || 'Unnamed meal'}
-            </p>
-            {flagged && (
-              <svg className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-            )}
-          </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {formatTime(timestamp)}
-            <span className="mx-1.5 text-slate-600">·</span>
-            {fmt(totals.proteinG)}g P · {fmt(totals.carbsG)}g C · {fmt(totals.fatG)}g F
-          </p>
+          {/* Analyzing shimmer */}
+          {isAnalyzing ? (
+            <div className="space-y-1.5">
+              <div className="h-3.5 w-3/4 rounded-full bg-pine-800 shimmer" />
+              <div className="h-2.5 w-1/2 rounded-full bg-pine-800 shimmer" />
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-medium text-pine-900 dark:text-cream-100 truncate">
+                  {analysis?.mealSummary || note || 'Unnamed meal'}
+                </p>
+                {flagged && <AlertTriangle size={12} className="text-amber-400 flex-shrink-0" />}
+                {_isMock  && <span className="text-[10px] text-amber-500 dark:text-amber-400 flex-shrink-0">demo</span>}
+              </div>
+              <p className="text-xs text-cream-500 dark:text-pine-400 mt-0.5">
+                {formatTime(timestamp)}
+                {analysis && (
+                  <>
+                    <span className="mx-1.5 text-cream-300 dark:text-pine-600">·</span>
+                    {fmt(totals.proteinG)}g P · {fmt(totals.carbsG)}g C · {fmt(totals.fatG)}g F
+                  </>
+                )}
+                {(isError || isInterrupted) && (
+                  <span className="text-red-400 ml-1">· Failed</span>
+                )}
+              </p>
+            </>
+          )}
         </div>
 
-        <div className="text-right flex-shrink-0">
-          <p className="text-base font-bold text-white">{fmt(totals.calories)}</p>
-          <p className="text-xs text-slate-500">kcal</p>
+        {/* Calorie badge */}
+        <div className="text-right flex-shrink-0 flex flex-col items-end gap-1">
+          {isAnalyzing ? (
+            <div className="h-5 w-10 rounded bg-pine-800 shimmer" />
+          ) : analysis ? (
+            <>
+              <p className="text-base font-bold text-pine-900 dark:text-cream-100">{fmt(totals.calories)}</p>
+              <p className="text-xs text-cream-400 dark:text-pine-500">kcal</p>
+            </>
+          ) : null}
+          {isExpanded
+            ? <ChevronUp   size={14} className="text-cream-400 dark:text-pine-500" />
+            : <ChevronDown size={14} className="text-cream-400 dark:text-pine-500" />
+          }
         </div>
       </button>
 
       {/* Expanded detail */}
       {isExpanded && (
-        <div className="border-t border-slate-700 px-4 py-4">
-          {/* Macros detail */}
-          <div className="grid grid-cols-3 gap-2 mb-4">
-            {MACRO_LABELS.map(({ key, label, unit, color }) => (
-              <div key={key} className="text-center">
-                <p className="text-xs text-slate-500">{label}</p>
-                <p className="text-sm font-semibold mt-0.5" style={{ color }}>
-                  {fmt(totals[key])}<span className="text-xs text-slate-500 ml-0.5">{unit}</span>
-                </p>
+        <div className="border-t border-cream-200 dark:border-pine-800 px-4 py-4 space-y-4 animate-fade-in">
+
+          {/* Error / interrupted state */}
+          {(isError || isInterrupted) && (
+            <div className="rounded-xl p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
+              <p className="text-xs text-red-600 dark:text-red-300">{errorMessage || 'Analysis failed.'}</p>
+              {canRetry && (
+                <button onClick={onRetry}
+                  className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-pine-500 dark:text-pine-300 hover:text-pine-400">
+                  <RefreshCw size={12} /> Retry analysis
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Nutrition */}
+          {analysis && (
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                {MACRO_LABELS.map(({ key, label, unit, color }) => (
+                  <div key={key} className="text-center rounded-xl py-2 bg-cream-100 dark:bg-pine-800">
+                    <p className="text-xs text-cream-500 dark:text-pine-400">{label}</p>
+                    <p className="text-sm font-bold mt-0.5" style={{ color }}>
+                      {fmt(totals[key])}<span className="text-xs text-cream-400 dark:text-pine-500 ml-0.5 font-normal">{unit}</span>
+                    </p>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
 
-          {/* Items list */}
-          {analysis?.items?.length > 0 && (
-            <div className="space-y-1.5 mb-4">
-              {analysis.items.map((item, i) => (
-                <div key={i} className="flex justify-between text-xs text-slate-300">
-                  <span className="truncate max-w-[65%]">{item.name} (~{fmt(item.estimatedWeightG)}g)</span>
-                  <span className="text-slate-400 flex-shrink-0">{fmt(item.calories)} kcal</span>
+              {analysis.items?.length > 0 && (
+                <div className="space-y-1">
+                  {analysis.items.map((item, i) => (
+                    <div key={i} className="flex justify-between text-xs">
+                      <span className="text-pine-700 dark:text-cream-300 truncate max-w-[65%]">{item.name} (~{fmt(item.estimatedWeightG)}g)</span>
+                      <span className="text-cream-500 dark:text-pine-400 flex-shrink-0">{fmt(item.calories)} kcal</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+
+              {flagged && analysis.questions?.length > 0 && (
+                <div className="rounded-xl p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50">
+                  <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1">Flagged uncertainties</p>
+                  {analysis.questions.map((q, i) => (
+                    <p key={i} className="text-xs text-amber-700 dark:text-amber-300">{i + 1}. {q}</p>
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
-          {/* Flagged questions */}
-          {flagged && analysis?.questions?.length > 0 && (
-            <div className="bg-amber-900/20 rounded-xl p-3 mb-4">
-              <p className="text-xs font-semibold text-amber-400 mb-1">Flagged uncertainties</p>
-              {analysis.questions.map((q, i) => (
-                <p key={i} className="text-xs text-amber-300">{i + 1}. {q}</p>
-              ))}
-            </div>
-          )}
-
-          {/* Note */}
+          {/* Original note */}
           {note && (
-            <p className="text-xs text-slate-400 italic mb-4">Note: "{note}"</p>
+            <p className="text-xs text-cream-500 dark:text-pine-400 italic">"{note}"</p>
           )}
+
+          {/* User notes (editable) */}
+          <UserNoteEditor value={userNotes || ''} onSave={onNoteUpdate} />
 
           {/* Delete */}
-          <button
-            onClick={onDelete}
-            className="w-full py-2.5 bg-red-900/30 hover:bg-red-900/50 border border-red-800/40 rounded-xl text-sm text-red-400 font-medium transition-colors active:scale-95"
-          >
-            Delete Meal
+          <button onClick={onDelete}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm text-red-500 dark:text-red-400 font-medium bg-red-50 dark:bg-red-950/20 hover:bg-red-100 dark:hover:bg-red-950/40 border border-red-100 dark:border-red-800/30 transition-colors active:scale-[0.98]">
+            <Trash2 size={14} /> Delete Meal
           </button>
         </div>
       )}
     </div>
+  )
+}
+
+function UserNoteEditor({ value, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [draft,   setDraft]   = useState(value)
+
+  function handleSave() {
+    onSave(draft.trim())
+    setEditing(false)
+  }
+
+  function handleCancel() {
+    setDraft(value)
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <div className="animate-fade-in">
+        <textarea
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          placeholder="Add a note… e.g. extra sauce, bigger portion than usual"
+          rows={2}
+          autoFocus
+          className="w-full rounded-xl px-3 py-2.5 text-sm bg-cream-100 dark:bg-pine-800 border border-pine-300 dark:border-pine-600 text-pine-900 dark:text-cream-100 placeholder-cream-400 dark:placeholder-pine-500 outline-none focus:ring-2 focus:ring-pine-400 resize-none"
+        />
+        <div className="flex gap-2 mt-2">
+          <button onClick={handleSave}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-pine-500 dark:bg-pine-400 text-white dark:text-pine-950 text-xs font-semibold active:scale-95">
+            <Check size={12} /> Save
+          </button>
+          <button onClick={handleCancel}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cream-200 dark:bg-pine-800 text-pine-700 dark:text-cream-300 text-xs font-medium active:scale-95">
+            <X size={12} /> Cancel
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <button onClick={() => { setDraft(value); setEditing(true) }}
+      className="flex items-start gap-2 text-xs text-cream-500 dark:text-pine-400 hover:text-pine-500 dark:hover:text-pine-300 transition-colors w-full text-left">
+      <Pencil size={12} className="mt-0.5 flex-shrink-0" />
+      {value ? <span className="italic">{value}</span> : <span>Add a note to this meal…</span>}
+    </button>
   )
 }

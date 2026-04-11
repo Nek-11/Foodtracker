@@ -1,97 +1,127 @@
-import { useState, useCallback } from 'react'
-import LogScreen from './components/LogScreen.jsx'
-import Dashboard from './components/Dashboard.jsx'
-import History from './components/History.jsx'
-import Settings from './components/Settings.jsx'
-
-const TABS = [
-  {
-    id: 'log',
-    label: 'Log',
-    icon: (active) => (
-      <svg className={`w-6 h-6 ${active ? 'text-emerald-400' : 'text-slate-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={active ? 2 : 1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={active ? 2 : 1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    )
-  },
-  {
-    id: 'dashboard',
-    label: 'Dashboard',
-    icon: (active) => (
-      <svg className={`w-6 h-6 ${active ? 'text-emerald-400' : 'text-slate-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={active ? 2 : 1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-      </svg>
-    )
-  },
-  {
-    id: 'history',
-    label: 'History',
-    icon: (active) => (
-      <svg className={`w-6 h-6 ${active ? 'text-emerald-400' : 'text-slate-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={active ? 2 : 1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-      </svg>
-    )
-  },
-  {
-    id: 'settings',
-    label: 'Settings',
-    icon: (active) => (
-      <svg className={`w-6 h-6 ${active ? 'text-emerald-400' : 'text-slate-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={active ? 2 : 1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={active ? 2 : 1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    )
-  },
-]
+import { useState, useEffect, useCallback } from 'react'
+import { Camera, BarChart2, ClipboardList, Settings as SettingsIcon, Sun, Moon } from 'lucide-react'
+import LogScreen   from './components/LogScreen.jsx'
+import Dashboard   from './components/Dashboard.jsx'
+import History     from './components/History.jsx'
+import Settings    from './components/Settings.jsx'
+import { getSettings, saveSettings, getMeals, updateMeal } from './services/storage.js'
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('log')
-  const [refreshKey, setRefreshKey] = useState(0)
+  const [activeTab,   setActiveTab]   = useState('log')
+  const [refreshKey,  setRefreshKey]  = useState(0)
+  const [isDark,      setIsDark]      = useState(true)
 
-  const handleMealSaved = useCallback(() => {
+  // Load theme from settings on mount
+  useEffect(() => {
+    const s = getSettings()
+    const dark = s.theme !== 'light'
+    setIsDark(dark)
+    document.documentElement.classList.toggle('dark', dark)
+  }, [])
+
+  // Fix any meals that were left in 'analyzing' state from a previous session
+  useEffect(() => {
+    const meals = getMeals()
+    meals.forEach(m => {
+      if (m.status === 'analyzing') {
+        updateMeal(m.id, {
+          status: 'interrupted',
+          errorMessage: 'Analysis was interrupted. Open the meal to retry.',
+        })
+      }
+    })
+  }, []) // runs once on mount
+
+  function toggleTheme() {
+    const next = !isDark
+    setIsDark(next)
+    document.documentElement.classList.toggle('dark', next)
+    const s = getSettings()
+    saveSettings({ ...s, theme: next ? 'dark' : 'light' })
+  }
+
+  // Called by LogScreen after saving a pending meal — switches to History
+  const handleMealSubmitted = useCallback(() => {
+    setRefreshKey(k => k + 1)
+    setActiveTab('history')
+  }, [])
+
+  // Called from other places that need to refresh dashboard/history
+  const handleRefresh = useCallback(() => {
     setRefreshKey(k => k + 1)
   }, [])
 
+  const tabs = [
+    { id: 'log',       label: 'Log',       Icon: Camera },
+    { id: 'dashboard', label: 'Today',     Icon: BarChart2 },
+    { id: 'history',   label: 'History',   Icon: ClipboardList },
+    { id: 'settings',  label: 'Settings',  Icon: SettingsIcon },
+  ]
+
   return (
-    <div className="flex flex-col h-full max-w-md mx-auto">
-      {/* Main content area */}
+    <div className="flex flex-col h-full max-w-md mx-auto bg-cream-100 dark:bg-pine-950 transition-colors duration-300">
+
+      {/* Theme toggle — floating top-right */}
+      <button
+        onClick={toggleTheme}
+        aria-label="Toggle theme"
+        className="fixed top-0 right-4 z-50 p-2 text-pine-600 dark:text-pine-300 hover:text-pine-400"
+        style={{ marginTop: 'max(0.5rem, var(--sat))' }}
+      >
+        {isDark ? <Sun size={18} /> : <Moon size={18} />}
+      </button>
+
+      {/* Main content */}
       <main className="flex-1 overflow-hidden relative">
-        <div className={`absolute inset-0 ${activeTab === 'log' ? 'block' : 'hidden'}`}>
-          <LogScreen onMealSaved={handleMealSaved} />
-        </div>
-        <div className={`absolute inset-0 ${activeTab === 'dashboard' ? 'block' : 'hidden'}`}>
-          <Dashboard refreshKey={refreshKey} />
-        </div>
-        <div className={`absolute inset-0 ${activeTab === 'history' ? 'block' : 'hidden'}`}>
-          <History refreshKey={refreshKey} />
-        </div>
-        <div className={`absolute inset-0 ${activeTab === 'settings' ? 'block' : 'hidden'}`}>
-          <Settings />
-        </div>
+        {['log', 'dashboard', 'history', 'settings'].map(tab => (
+          <div
+            key={tab}
+            className={`absolute inset-0 transition-opacity duration-200 ${
+              activeTab === tab ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+            }`}
+          >
+            {tab === 'log' && (
+              <LogScreen onMealSubmitted={handleMealSubmitted} />
+            )}
+            {tab === 'dashboard' && (
+              <Dashboard refreshKey={refreshKey} />
+            )}
+            {tab === 'history' && (
+              <History refreshKey={refreshKey} onRefresh={handleRefresh} />
+            )}
+            {tab === 'settings' && (
+              <Settings onRefresh={handleRefresh} />
+            )}
+          </div>
+        ))}
       </main>
 
       {/* Bottom navigation */}
       <nav
-        className="flex-shrink-0 bg-slate-900 border-t border-slate-800"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        className="flex-shrink-0 border-t border-cream-200 dark:border-pine-800 bg-cream-50 dark:bg-pine-900"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
         <div className="flex">
-          {TABS.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 flex flex-col items-center gap-1 py-2.5 transition-opacity ${
-                activeTab === tab.id ? 'opacity-100' : 'opacity-60 hover:opacity-80'
-              }`}
-              aria-label={tab.label}
-            >
-              {tab.icon(activeTab === tab.id)}
-              <span className={`text-xs ${activeTab === tab.id ? 'text-emerald-400 font-medium' : 'text-slate-500'}`}>
-                {tab.label}
-              </span>
-            </button>
-          ))}
+          {tabs.map(({ id, label, Icon }) => {
+            const active = activeTab === id
+            return (
+              <button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                className={`flex-1 flex flex-col items-center gap-1 py-3 transition-all ${
+                  active
+                    ? 'text-pine-500 dark:text-pine-300'
+                    : 'text-cream-500 dark:text-pine-600 hover:text-pine-400 dark:hover:text-pine-400'
+                }`}
+                aria-label={label}
+              >
+                <Icon size={22} strokeWidth={active ? 2.2 : 1.7} />
+                <span className={`text-[10px] font-medium tracking-wide ${active ? 'opacity-100' : 'opacity-60'}`}>
+                  {label}
+                </span>
+              </button>
+            )
+          })}
         </div>
       </nav>
     </div>

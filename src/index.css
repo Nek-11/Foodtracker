@@ -2,10 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Safe area insets for iPhone notch/home indicator */
 :root {
-  --sat: env(safe-area-inset-top);
-  --sab: env(safe-area-inset-bottom);
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
 }
 
 html, body, #root {
@@ -15,25 +14,65 @@ html, body, #root {
 }
 
 body {
-  @apply bg-slate-950 text-white;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+  font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  @apply bg-cream-100 text-pine-900 dark:bg-pine-950 dark:text-cream-100;
 }
 
-/* Smooth scroll momentum on iOS */
 .scroll-touch {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Hide default file input */
 input[type="file"] {
   display: none;
 }
 
-/* Spinner animation */
+/* Safe-area top padding utility */
+.pt-safe {
+  padding-top: max(1.25rem, var(--sat));
+}
+
+/* Spinner */
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
-
 .spinner {
   animation: spin 0.8s linear infinite;
+}
+
+/* Shimmer skeleton for loading states */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 25%,
+    rgba(255, 255, 255, 0.07) 50%,
+    transparent 75%
+  );
+  background-size: 300% 100%;
+  animation: shimmer 1.8s linear infinite;
+}
+
+/* Light mode shimmer */
+.light .shimmer,
+html:not(.dark) .shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 25%,
+    rgba(0, 0, 0, 0.04) 50%,
+    transparent 75%
+  );
+  background-size: 300% 100%;
+}
+
+/* Range input thumb */
+input[type="range"] {
+  -webkit-appearance: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #3d9b6a;
+  cursor: pointer;
+  border: 2px solid rgba(255,255,255,0.2);
 }
