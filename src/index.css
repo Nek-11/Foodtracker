@@ -29,6 +29,11 @@ input[type="file"] {
   display: none;
 }
 
+/* Reusable section heading */
+.section-title {
+  @apply text-xs font-semibold text-slate-400 uppercase tracking-wider;
+}
+
 /* Spinner animation */
 @keyframes spin {
   to { transform: rotate(360deg); }

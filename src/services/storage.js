@@ -17,7 +17,12 @@ const DEFAULT_GOALS = {
 }
 
 const DEFAULT_SETTINGS = {
-  claudeApiKey: '',
+  provider:        'claude',           // 'claude' | 'openai'
+  claudeApiKey:    '',
+  claudeModel:     'claude-sonnet-4-6',
+  openaiApiKey:    '',
+  openaiModel:     'o4-mini',
+  reasoningEffort: 'medium',           // 'low' | 'medium' | 'high'
 }
 
 // --- Meals ---

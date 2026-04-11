@@ -1,8 +1,8 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { compressImage, makeThumbnail } from '../utils/imageUtils.js'
-import { analyzeMeal, reanalyzeMeal } from '../services/claude.js'
-import { saveMeal, getSettings } from '../services/storage.js'
+import { analyzeMeal, reanalyzeMeal, isDemoMode } from '../services/analyze.js'
+import { saveMeal } from '../services/storage.js'
 import { startListening, isSpeechSupported } from '../services/speech.js'
 import { fmt } from '../utils/nutritionUtils.js'
 import AnalysisResult from './AnalysisResult.jsx'
@@ -108,11 +108,6 @@ export default function LogScreen({ onMealSaved }) {
   // --- Analysis ---
 
   async function handleAnalyze() {
-    const settings = getSettings()
-    if (!settings.claudeApiKey) {
-      setError('No API key set. Go to Settings and enter your Claude API key.')
-      return
-    }
     if (!foodImage && !note.trim()) {
       setError('Add a photo or describe your meal.')
       return
@@ -123,14 +118,12 @@ export default function LogScreen({ onMealSaved }) {
 
     try {
       const result = await analyzeMeal({
-        apiKey: settings.claudeApiKey,
         foodImage: foodImage || null,
         labelImage: labelImage || null,
         note: note.trim(),
       })
       setAnalysis(result)
-      const id = uuidv4()
-      setPendingMealId(id)
+      setPendingMealId(uuidv4())
       setMode(MODE_RESULT)
     } catch (err) {
       setError(err.message)
@@ -139,12 +132,10 @@ export default function LogScreen({ onMealSaved }) {
   }
 
   async function handleReanalyze(clarificationNote) {
-    const settings = getSettings()
     setMode(MODE_LOADING)
     setError(null)
     try {
       const result = await reanalyzeMeal({
-        apiKey: settings.claudeApiKey,
         foodImage: foodImage || null,
         labelImage: labelImage || null,
         note: clarificationNote,
@@ -226,12 +217,22 @@ export default function LogScreen({ onMealSaved }) {
   }
 
   // IDLE or PREVIEW mode
+  const demo = isDemoMode()
   return (
     <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-8">
       <div className="px-4 pt-6 pb-2">
         <h1 className="text-2xl font-bold">Log a Meal</h1>
         <p className="text-slate-400 text-sm mt-1">Photo, voice note, or both</p>
       </div>
+
+      {demo && (
+        <div className="mx-4 mt-3 bg-blue-900/30 border border-blue-700/50 rounded-xl px-4 py-2.5 flex items-center gap-2">
+          <svg className="w-4 h-4 text-blue-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+          </svg>
+          <p className="text-xs text-blue-300">Demo mode — add your API key in Settings for real analysis</p>
+        </div>
+      )}
 
       {error && (
         <div className="mx-4 mt-3 bg-red-900/40 border border-red-700 rounded-xl px-4 py-3 text-sm text-red-300">
