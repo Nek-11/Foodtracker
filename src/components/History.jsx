@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { ClipboardList, ChevronDown, ChevronUp, Trash2, RefreshCw, Pencil, Check, X, AlertTriangle, Loader } from 'lucide-react'
-import { getMeals, deleteMeal, updateMeal, getPendingData, clearPendingData } from '../services/storage.js'
+import { getMeals, deleteMeal, updateMeal, getPendingData, clearPendingData, getSettings } from '../services/storage.js'
 import { analyzeMeal } from '../services/analyzer.js'
 import { fmt, formatDate, formatTime, MACRO_LABELS } from '../utils/nutritionUtils.js'
-import { getSettings } from '../services/storage.js'
 
 function getDateKeyLocal(isoTimestamp, resetHour) {
   const d = new Date(isoTimestamp)

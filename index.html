@@ -12,6 +12,13 @@
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet" />
     <link rel="apple-touch-icon" href="/Foodtracker/icons/icon-192.png" />
     <title>Foodtracker</title>
+    <!-- Prevent flash of light mode: apply dark class synchronously before React loads -->
+    <script>
+      try {
+        var s = JSON.parse(localStorage.getItem('ft_settings') || '{}');
+        if (!s.theme || s.theme !== 'light') document.documentElement.classList.add('dark');
+      } catch (e) { document.documentElement.classList.add('dark'); }
+    </script>
   </head>
   <body>
     <div id="root"></div>

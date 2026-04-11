@@ -40,6 +40,11 @@ input[type="file"] {
 }
 
 /* Shimmer skeleton for loading states */
+@keyframes shimmer {
+  0%   { background-position: -300% 0; }
+  100% { background-position:  300% 0; }
+}
+
 .shimmer {
   background: linear-gradient(
     90deg,
