@@ -68,9 +68,9 @@ export async function analyzeMeal({ foodImage, labelImage, note }) {
   const settings = getSettings()
   const { provider, apiKey, model, reasoningEffort } = resolveParams(settings)
 
-  if (!apiKey) return { ...MOCK_ANALYSIS }
+  if (!apiKey?.trim()) return { ...MOCK_ANALYSIS }
 
-  const params = { apiKey, model, reasoningEffort, foodImage, labelImage, note }
+  const params = { apiKey: apiKey.trim(), model, reasoningEffort, foodImage, labelImage, note }
   return provider === 'openai'
     ? openai.analyzeMeal(params)
     : claude.analyzeMeal(params)
@@ -80,9 +80,9 @@ export async function reanalyzeMeal({ foodImage, labelImage, note, previousAnaly
   const settings = getSettings()
   const { provider, apiKey, model, reasoningEffort } = resolveParams(settings)
 
-  if (!apiKey) return { ...MOCK_ANALYSIS }
+  if (!apiKey?.trim()) return { ...MOCK_ANALYSIS }
 
-  const params = { apiKey, model, reasoningEffort, foodImage, labelImage, note, previousAnalysis }
+  const params = { apiKey: apiKey.trim(), model, reasoningEffort, foodImage, labelImage, note, previousAnalysis }
   return provider === 'openai'
     ? openai.reanalyzeMeal(params)
     : claude.reanalyzeMeal(params)

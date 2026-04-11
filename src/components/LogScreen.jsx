@@ -127,7 +127,10 @@ export default function LogScreen({ onMealSaved }) {
       setPendingMealId(id)
       setMode(MODE_RESULT)
     } catch (err) {
-      setError(err.message)
+      const msg = err instanceof TypeError
+        ? 'Network error — check your connection and API key, then try again.'
+        : err.message
+      setError(msg)
       setMode(foodImage ? MODE_PREVIEW : MODE_IDLE)
     }
   }
@@ -145,7 +148,10 @@ export default function LogScreen({ onMealSaved }) {
       setAnalysis(result)
       setMode(MODE_RESULT)
     } catch (err) {
-      setError(err.message)
+      const msg = err instanceof TypeError
+        ? 'Network error — check your connection and API key, then try again.'
+        : err.message
+      setError(msg)
       setMode(MODE_RESULT)
     }
   }
