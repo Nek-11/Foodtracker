@@ -6,13 +6,14 @@ import {
 } from 'recharts'
 import { getDailyTotals, getLast7DaysTotals, getGoals, getMealsByDate, getSettings } from '../services/storage.js'
 import { fmt, pct, progressBgColor, formatDate, MACRO_LABELS, getMealTypes, CATEGORY_STYLES } from '../utils/nutritionUtils.js'
+import PullToRefresh from './PullToRefresh.jsx'
 
 function todayStr() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 
-export default function Dashboard({ refreshKey }) {
+export default function Dashboard({ refreshKey, onRefresh }) {
   const [selectedDate,    setSelectedDate]    = useState(todayStr)
   const [totals,          setTotals]          = useState({})
   const [goals,           setGoals]           = useState({})
@@ -106,8 +107,12 @@ export default function Dashboard({ refreshKey }) {
     if (next <= today) setSelectedDate(next)
   }
 
+  function handlePullRefresh() {
+    if (onRefresh) onRefresh()
+  }
+
   return (
-    <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-4">
+    <PullToRefresh onRefresh={handlePullRefresh} className="flex flex-col h-full overflow-y-auto scroll-touch pb-4">
 
       {/* Header with date picker */}
       <div className="px-4 pb-2 pt-safe">
@@ -307,7 +312,7 @@ export default function Dashboard({ refreshKey }) {
           )}
         </section>
       )}
-    </div>
+    </PullToRefresh>
   )
 }
 

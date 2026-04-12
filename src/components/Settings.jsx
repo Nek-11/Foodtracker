@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Eye, EyeOff, Download, Upload, Clock } from 'lucide-react'
+import { Eye, EyeOff, Download, Upload, Clock, ChevronDown, ChevronUp, Plus, X, ExternalLink } from 'lucide-react'
 import {
   getSettings, saveSettings,
   getGoals,    saveGoals,
@@ -39,6 +39,8 @@ export default function Settings({ onRefresh }) {
   const [resetHour,      setResetHour]      = useState(2)
   const [mealTimeSlots,  setMealTimeSlots]  = useState(DEFAULT_MEAL_SLOTS)
   const [goals,          setGoals]          = useState({})
+  const [habits,         setHabits]         = useState([])
+  const [goalsOpen,      setGoalsOpen]      = useState(false)
   const [saved,          setSaved]          = useState(false)
   const [importStatus,   setImportStatus]   = useState(null)
   const importRef = useRef(null)
@@ -50,6 +52,7 @@ export default function Settings({ onRefresh }) {
     setOpenaiKey(s.openaiApiKey || '')
     setResetHour(s.resetHour ?? 2)
     setMealTimeSlots({ ...DEFAULT_MEAL_SLOTS, ...s.mealTimeSlots })
+    setHabits(s.habits || [])
     setGoals(getGoals())
   }, [])
 
@@ -67,11 +70,24 @@ export default function Settings({ onRefresh }) {
       openaiApiKey:  openaiKey.trim(),
       resetHour,
       mealTimeSlots,
+      habits: habits.filter(h => h.trim()),
     })
     saveGoals(goals)
     setSaved(true)
     if (onRefresh) onRefresh()
     setTimeout(() => setSaved(false), 2000)
+  }
+
+  function addHabit() {
+    setHabits(prev => [...prev, ''])
+  }
+
+  function updateHabit(index, value) {
+    setHabits(prev => prev.map((h, i) => i === index ? value : h))
+  }
+
+  function removeHabit(index) {
+    setHabits(prev => prev.filter((_, i) => i !== index))
   }
 
   function updateGoal(key, value) {
@@ -94,6 +110,7 @@ export default function Settings({ onRefresh }) {
       setOpenaiKey(s.openaiApiKey || '')
       setResetHour(s.resetHour ?? 2)
       setMealTimeSlots({ ...DEFAULT_MEAL_SLOTS, ...s.mealTimeSlots })
+      setHabits(s.habits || [])
       setGoals(getGoals())
     } catch (err) {
       setImportStatus(err.message)
@@ -263,24 +280,67 @@ export default function Settings({ onRefresh }) {
         )}
       </section>
 
-      {/* Daily goals */}
+      {/* Daily goals (collapsible, collapsed by default) */}
       <section className={card}>
-        <span className={label}>Daily Goals</span>
-        <div className="space-y-4">
-          {GOAL_FIELDS.map(({ key, label: lbl, unit, min, max, step }) => (
-            <div key={key}>
-              <div className="flex justify-between text-sm mb-1.5">
-                <span className="text-pine-700 dark:text-cream-300">{lbl}</span>
-                <span className="font-semibold text-pine-900 dark:text-cream-100">
-                  {goals[key] || 0}<span className="text-cream-500 dark:text-pine-400 ml-1 font-normal text-xs">{unit}</span>
-                </span>
+        <button
+          onClick={() => setGoalsOpen(v => !v)}
+          className="w-full flex items-center justify-between"
+        >
+          <span className={label.replace('mb-3', 'mb-0')}>Daily Goals</span>
+          <span className="text-cream-400 dark:text-pine-500">
+            {goalsOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </span>
+        </button>
+        {goalsOpen && (
+          <div className="space-y-4 mt-3 animate-fade-in">
+            {GOAL_FIELDS.map(({ key, label: lbl, unit, min, max, step }) => (
+              <div key={key}>
+                <div className="flex justify-between text-sm mb-1.5">
+                  <span className="text-pine-700 dark:text-cream-300">{lbl}</span>
+                  <span className="font-semibold text-pine-900 dark:text-cream-100">
+                    {goals[key] || 0}<span className="text-cream-500 dark:text-pine-400 ml-1 font-normal text-xs">{unit}</span>
+                  </span>
+                </div>
+                <input type="range" min={min} max={max} step={step}
+                  value={goals[key] || 0} onChange={e => updateGoal(key, e.target.value)}
+                  className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-cream-300 dark:bg-pine-700 accent-pine-500"
+                />
               </div>
-              <input type="range" min={min} max={max} step={step}
-                value={goals[key] || 0} onChange={e => updateGoal(key, e.target.value)}
-                className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-cream-300 dark:bg-pine-700 accent-pine-500"
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Recurring Habits */}
+      <section className={card}>
+        <span className={label}>Recurring Habits</span>
+        <p className="text-xs text-cream-500 dark:text-pine-400 mb-3">
+          Add things you always do with your meals. These are sent as context for every analysis.
+        </p>
+        <div className="space-y-2">
+          {habits.map((habit, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input
+                type="text"
+                value={habit}
+                onChange={e => updateHabit(i, e.target.value)}
+                placeholder='e.g. "I always put half a tspn of sugar in my cappuccino"'
+                className="flex-1 rounded-xl px-3 py-2 text-sm bg-cream-200 dark:bg-pine-800 border border-cream-300 dark:border-pine-700 text-pine-900 dark:text-cream-100 placeholder-cream-400 dark:placeholder-pine-500 outline-none focus:ring-2 focus:ring-pine-400"
               />
+              <button
+                onClick={() => removeHabit(i)}
+                className="flex-shrink-0 p-1.5 rounded-lg text-red-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-all active:scale-95"
+              >
+                <X size={16} />
+              </button>
             </div>
           ))}
+          <button
+            onClick={addHabit}
+            className="flex items-center gap-1.5 text-xs font-semibold text-pine-500 dark:text-pine-300 hover:text-pine-400 py-2 transition-colors active:scale-95"
+          >
+            <Plus size={14} /> Add habit
+          </button>
         </div>
       </section>
 
@@ -296,6 +356,20 @@ export default function Settings({ onRefresh }) {
         >
           {saved ? 'Saved!' : 'Save Settings'}
         </button>
+      </div>
+
+      {/* Attribution */}
+      <div className="mx-4 mt-6 mb-4 flex items-center justify-center gap-1.5">
+        <span className="text-xs text-cream-400 dark:text-pine-600">Vibecoded by</span>
+        <a
+          href="https://github.com/Nek-11"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1 text-xs font-medium text-cream-500 dark:text-pine-500 hover:text-pine-500 dark:hover:text-pine-300 transition-colors"
+        >
+          <ExternalLink size={10} />
+          nek-11
+        </a>
       </div>
     </div>
   )

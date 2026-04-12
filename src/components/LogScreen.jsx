@@ -218,7 +218,6 @@ export default function LogScreen({ onMealSubmitted }) {
             </div>
             <div className="text-center">
               <p className="text-sm font-medium text-pine-700 dark:text-cream-300">Take or upload a photo</p>
-              <p className="text-xs text-cream-500 dark:text-pine-500 mt-0.5">Optional — tap to open camera</p>
             </div>
           </label>
         )}
@@ -282,9 +281,6 @@ export default function LogScreen({ onMealSubmitted }) {
             </button>
             <p className="text-sm text-cream-500 dark:text-pine-400">{recordingHint}</p>
           </div>
-          {useWhisper && !isRecording && !isTranscribing && (
-            <p className="text-[10px] text-pine-400 dark:text-pine-500 mb-2 pl-1">Using Whisper (OpenAI)</p>
-          )}
           <textarea
             value={note}
             onChange={e => setNote(e.target.value)}
@@ -307,9 +303,6 @@ export default function LogScreen({ onMealSubmitted }) {
           <Sparkles size={18} />
           {isLoading ? 'Submitting…' : 'Log Meal'}
         </button>
-        <p className="text-center text-xs text-cream-400 dark:text-pine-500 mt-2">
-          Saved immediately — AI analysis runs in background
-        </p>
       </div>
     </div>
   )
