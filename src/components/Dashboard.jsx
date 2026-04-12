@@ -29,7 +29,7 @@ export default function Dashboard({ refreshKey }) {
   const calPct = pct(totals.calories, goals.calories)
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-8">
+    <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-4">
 
       <div className="px-4 pb-2 pt-safe">
         <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">Today</h1>
@@ -96,7 +96,7 @@ export default function Dashboard({ refreshKey }) {
             <XAxis dataKey="day" tick={{ fill: '#a09278', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#a09278', fontSize: 10 }} axisLine={false} tickLine={false} />
             <Tooltip
-              contentStyle={{ background: '#07180e', border: '1px solid #15472d', borderRadius: 12, fontSize: 12 }}
+              contentStyle={{ background: '#162d20', border: '1px solid #15472d', borderRadius: 12, fontSize: 12 }}
               labelStyle={{ color: '#63b587' }}
               itemStyle={{ color: '#3d9b6a' }}
             />
@@ -121,7 +121,7 @@ export default function Dashboard({ refreshKey }) {
             <XAxis dataKey="day" tick={{ fill: '#a09278', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#a09278', fontSize: 10 }} axisLine={false} tickLine={false} />
             <Tooltip
-              contentStyle={{ background: '#07180e', border: '1px solid #15472d', borderRadius: 12, fontSize: 12 }}
+              contentStyle={{ background: '#162d20', border: '1px solid #15472d', borderRadius: 12, fontSize: 12 }}
               labelStyle={{ color: '#63b587' }}
               itemStyle={{ color: '#60a5fa' }}
             />
