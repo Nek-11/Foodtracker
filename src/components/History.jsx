@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { ClipboardList, ChevronDown, ChevronUp, Trash2, RefreshCw, Pencil, Check, X, AlertTriangle, Loader } from 'lucide-react'
 import { hapticLight, hapticSuccess, hapticError, hapticWarning } from '../utils/haptics.js'
+import { friendlyError } from '../utils/errorMessages.js'
 import { getMeals, deleteMeal, updateMeal, getPendingData, clearPendingData, getSettings } from '../services/storage.js'
 import { analyzeMeal, reanalyzeMeal } from '../services/analyzer.js'
 import { fmt, formatDate, formatTime, MACRO_LABELS } from '../utils/nutritionUtils.js'
@@ -60,10 +61,7 @@ export default function History({ refreshKey, onRefresh }) {
       updateMeal(meal.id, { analysis, status: 'done' })
       clearPendingData(meal.id)
     } catch (err) {
-      const msg = err instanceof TypeError
-        ? 'Network error — check your connection and API key.'
-        : err.message
-      updateMeal(meal.id, { status: 'error', errorMessage: msg })
+      updateMeal(meal.id, { status: 'error', errorMessage: friendlyError(err) })
     }
     refresh()
     if (onRefresh) onRefresh()
@@ -96,10 +94,7 @@ export default function History({ refreshKey, onRefresh }) {
       updateMeal(meal.id, { analysis, status: 'done' })
     } catch (err) {
       hapticError()
-      const msg = err instanceof TypeError
-        ? 'Network error — check your connection and API key.'
-        : err.message
-      updateMeal(meal.id, { status: 'error', errorMessage: msg })
+      updateMeal(meal.id, { status: 'error', errorMessage: friendlyError(err) })
     }
     refresh()
     if (onRefresh) onRefresh()
