@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { ClipboardList, ChevronDown, ChevronUp, Trash2, RefreshCw, Pencil, Check, X, AlertTriangle, Loader } from 'lucide-react'
+import { ClipboardList, ChevronDown, ChevronUp, Trash2, RefreshCw, Pencil, Check, X, AlertTriangle, Loader, Search } from 'lucide-react'
 import { hapticLight, hapticSuccess, hapticError, hapticWarning } from '../utils/haptics.js'
 import { friendlyError } from '../utils/errorMessages.js'
 import { getMeals, deleteMeal, updateMeal, getPendingData, clearPendingData, getSettings } from '../services/storage.js'
@@ -26,8 +26,9 @@ function groupByDate(meals, resetHour) {
 }
 
 export default function History({ refreshKey, onRefresh }) {
-  const [meals,    setMeals]    = useState([])
-  const [expanded, setExpanded] = useState(null)
+  const [meals,       setMeals]       = useState([])
+  const [expanded,    setExpanded]    = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const resetHour = getSettings().resetHour ?? 2
 
   function refresh() {
@@ -105,6 +106,17 @@ export default function History({ refreshKey, onRefresh }) {
     refresh()
   }
 
+  // Filter meals by search query
+  const q = searchQuery.trim().toLowerCase()
+  const filteredMeals = q
+    ? meals.filter(m =>
+        m.analysis?.mealSummary?.toLowerCase().includes(q) ||
+        m.note?.toLowerCase().includes(q) ||
+        m.userNotes?.toLowerCase().includes(q) ||
+        m.analysis?.items?.some(item => item.name?.toLowerCase().includes(q))
+      )
+    : meals
+
   if (!meals.length) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 px-8 text-center">
@@ -119,13 +131,32 @@ export default function History({ refreshKey, onRefresh }) {
     )
   }
 
-  const groups = groupByDate(meals, resetHour)
+  const groups = groupByDate(filteredMeals, resetHour)
 
   return (
     <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-8">
       <div className="px-4 pb-2 pt-safe">
         <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">History</h1>
-        <p className="text-sm mt-0.5 text-cream-500 dark:text-pine-400">{meals.length} meal{meals.length !== 1 ? 's' : ''} logged</p>
+        <p className="text-sm mt-0.5 text-cream-500 dark:text-pine-400">
+          {q ? `${filteredMeals.length} of ${meals.length}` : meals.length} meal{meals.length !== 1 ? 's' : ''}
+        </p>
+      </div>
+
+      {/* Search bar */}
+      <div className="px-4 pb-2">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-cream-400 dark:text-pine-500 pointer-events-none" />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search meals…"
+            className="w-full pl-8 pr-3 py-2 rounded-xl text-sm bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800 text-pine-900 dark:text-cream-100 placeholder-cream-400 dark:placeholder-pine-500 outline-none focus:ring-2 focus:ring-pine-400"
+          />
+        </div>
+        {q && filteredMeals.length === 0 && (
+          <p className="text-xs text-cream-400 dark:text-pine-500 mt-2 text-center">No meals match "{searchQuery}"</p>
+        )}
       </div>
 
       {groups.map(([date, dateMeals]) => (
