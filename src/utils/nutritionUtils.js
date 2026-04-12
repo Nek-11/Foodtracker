@@ -64,6 +64,34 @@ export function groupByDate(meals) {
   return Object.entries(groups).sort(([a], [b]) => b.localeCompare(a))
 }
 
+/**
+ * Determine meal category based on time-of-day and calorie threshold.
+ *
+ * Rules (user-defined):
+ *  06:00–11:30  → Breakfast
+ *  11:31–14:30  → Lunch (≥800 kcal) or Snack
+ *  14:31–18:30  → Snack
+ *  18:31–02:00  → Dinner (≥800 kcal) or Snack
+ *  02:01–05:59  → Snack
+ */
+export function getMealCategory(isoTimestamp, calories = 0) {
+  const d   = new Date(isoTimestamp)
+  const min = d.getHours() * 60 + d.getMinutes()
+
+  if (min >= 360 && min <= 690)  return 'Breakfast'                           // 06:00–11:30
+  if (min >= 691 && min <= 870)  return calories >= 800 ? 'Lunch'   : 'Snack' // 11:31–14:30
+  if (min >= 871 && min <= 1110) return 'Snack'                               // 14:31–18:30
+  if (min >= 1111 || min <= 120) return calories >= 800 ? 'Dinner'  : 'Snack' // 18:31–02:00
+  return 'Snack'                                                               // 02:01–05:59
+}
+
+export const CATEGORY_STYLES = {
+  Breakfast: { pill: 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400' },
+  Lunch:     { pill: 'bg-sky-100 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400' },
+  Dinner:    { pill: 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-500 dark:text-indigo-400' },
+  Snack:     { pill: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' },
+}
+
 export const MACRO_LABELS = [
   { key: 'proteinG',  label: 'Protein',  unit: 'g',  color: '#60a5fa' },
   { key: 'carbsG',    label: 'Carbs',    unit: 'g',  color: '#f59e0b' },

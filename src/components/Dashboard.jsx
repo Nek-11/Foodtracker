@@ -3,19 +3,34 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
   Tooltip, ReferenceLine, BarChart, Bar, Cell
 } from 'recharts'
-import { getDailyTotals, getLast7DaysTotals, getGoals } from '../services/storage.js'
-import { fmt, pct, progressBgColor, formatDate, MACRO_LABELS } from '../utils/nutritionUtils.js'
+import { getDailyTotals, getLast7DaysTotals, getGoals, getMealsByDate } from '../services/storage.js'
+import { fmt, pct, progressBgColor, formatDate, MACRO_LABELS, getMealCategory, CATEGORY_STYLES } from '../utils/nutritionUtils.js'
 
 export default function Dashboard({ refreshKey }) {
-  const [totals,   setTotals]   = useState({})
-  const [goals,    setGoals]    = useState({})
-  const [weekData, setWeekData] = useState([])
+  const [totals,        setTotals]        = useState({})
+  const [goals,         setGoals]         = useState({})
+  const [weekData,      setWeekData]      = useState([])
+  const [mealsByCategory, setMealsByCategory] = useState([])
 
   useEffect(() => {
     const d = new Date()
     const today = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
     setTotals(getDailyTotals(today))
-    setGoals(getGoals())
+    const g = getGoals()
+    setGoals(g)
+
+    // Meal breakdown by category for today
+    const todayMeals = getMealsByDate(today).filter(m => m.analysis)
+    const catMap = {}
+    todayMeals.forEach(m => {
+      const cat = getMealCategory(m.timestamp, m.analysis.totals.calories || 0)
+      if (!catMap[cat]) catMap[cat] = { cal: 0, count: 0 }
+      catMap[cat].cal   += m.analysis.totals.calories || 0
+      catMap[cat].count += 1
+    })
+    const order = ['Breakfast', 'Lunch', 'Snack', 'Dinner']
+    setMealsByCategory(order.filter(c => catMap[c]).map(c => ({ cat: c, ...catMap[c] })))
+
     const week = getLast7DaysTotals().map(({ date, totals: t }) => ({
       day: formatDate(date) === 'Today'
         ? 'Today'
@@ -85,6 +100,23 @@ export default function Dashboard({ refreshKey }) {
           })}
         </div>
       </section>
+
+      {/* Today's meals by category */}
+      {mealsByCategory.length > 0 && (
+        <section className="mx-4 mt-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-cream-500 dark:text-pine-400 mb-2 px-1">
+            Today's Meals
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {mealsByCategory.map(({ cat, cal, count }) => (
+              <div key={cat} className={`flex items-center gap-2 px-3 py-2 rounded-xl ${CATEGORY_STYLES[cat].pill}`}>
+                <span className="text-xs font-semibold">{cat}</span>
+                <span className="text-xs opacity-70">{fmt(cal)} kcal{count > 1 ? ` · ${count}` : ''}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 7-day calorie chart */}
       <section className="mx-4 mt-4 rounded-2xl px-4 pt-4 pb-3 bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800">

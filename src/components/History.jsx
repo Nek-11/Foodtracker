@@ -4,7 +4,7 @@ import { hapticLight, hapticSuccess, hapticError, hapticWarning } from '../utils
 import { friendlyError } from '../utils/errorMessages.js'
 import { getMeals, deleteMeal, updateMeal, getPendingData, clearPendingData, getSettings } from '../services/storage.js'
 import { analyzeMeal, reanalyzeMeal } from '../services/analyzer.js'
-import { fmt, formatDate, formatTime, MACRO_LABELS } from '../utils/nutritionUtils.js'
+import { fmt, formatDate, formatTime, MACRO_LABELS, getMealCategory, CATEGORY_STYLES } from '../utils/nutritionUtils.js'
 
 function getDateKeyLocal(isoTimestamp, resetHour) {
   const d = new Date(isoTimestamp)
@@ -158,8 +158,10 @@ export default function History({ refreshKey, onRefresh }) {
 
 function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onReanalyze, onNoteUpdate }) {
   const { analysis, thumbnail, timestamp, note, status, errorMessage, userNotes, _isMock } = meal
-  const totals  = analysis?.totals || {}
-  const flagged = analysis?.flagged
+  const totals   = analysis?.totals || {}
+  const flagged  = analysis?.flagged
+  const category = getMealCategory(timestamp, totals.calories || 0)
+  const catStyle = CATEGORY_STYLES[category]
 
   const isAnalyzing    = status === 'analyzing'
   const isInterrupted  = status === 'interrupted'
@@ -209,18 +211,23 @@ function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onReanalyze, 
                 {flagged && <AlertTriangle size={12} className="text-amber-400 flex-shrink-0" />}
                 {_isMock  && <span className="text-[10px] text-amber-500 dark:text-amber-400 flex-shrink-0">demo</span>}
               </div>
-              <p className="text-xs text-cream-500 dark:text-pine-400 mt-0.5">
-                {formatTime(timestamp)}
-                {analysis && (
-                  <>
-                    <span className="mx-1.5 text-cream-300 dark:text-pine-600">·</span>
-                    {fmt(totals.proteinG)}g P · {fmt(totals.carbsG)}g C · {fmt(totals.fatG)}g F
-                  </>
-                )}
-                {(isError || isInterrupted) && (
-                  <span className="text-red-400 ml-1">· Failed</span>
-                )}
-              </p>
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${catStyle.pill}`}>
+                  {category}
+                </span>
+                <p className="text-xs text-cream-500 dark:text-pine-400">
+                  {formatTime(timestamp)}
+                  {analysis && (
+                    <>
+                      <span className="mx-1.5 text-cream-300 dark:text-pine-600">·</span>
+                      {fmt(totals.proteinG)}g P · {fmt(totals.carbsG)}g C · {fmt(totals.fatG)}g F
+                    </>
+                  )}
+                  {(isError || isInterrupted) && (
+                    <span className="text-red-400 ml-1">· Failed</span>
+                  )}
+                </p>
+              </div>
             </>
           )}
         </div>
