@@ -5,6 +5,8 @@ import { compressImage, makeThumbnail } from '../utils/imageUtils.js'
 import { analyzeMeal } from '../services/analyzer.js'
 import { saveMeal, savePendingData, updateMeal, clearPendingData } from '../services/storage.js'
 import { startListening, isSpeechSupported } from '../services/speech.js'
+import { hapticSuccess, hapticError, hapticLight } from '../utils/haptics.js'
+import { friendlyError } from '../utils/errorMessages.js'
 
 export default function LogScreen({ onMealSubmitted }) {
   const [foodImage,   setFoodImage]   = useState(null)
@@ -46,6 +48,7 @@ export default function LogScreen({ onMealSubmitted }) {
   // ── Voice recording ────────────────────────────────────────────────────────
 
   function toggleRecording() {
+    hapticLight()
     if (isRecording) {
       stopListeningRef.current?.(); stopListeningRef.current = null; setIsRecording(false)
       return
@@ -69,6 +72,7 @@ export default function LogScreen({ onMealSubmitted }) {
 
   async function handleSubmit() {
     if (!foodImage && !note.trim()) {
+      hapticError()
       setError('Add a photo or describe your meal first.')
       return
     }
@@ -92,6 +96,7 @@ export default function LogScreen({ onMealSubmitted }) {
     savePendingData(mealId, { foodImage, labelImage, note: note.trim() })
 
     // Navigate to History right away — analysis continues in background
+    hapticSuccess()
     clearFood()
     setIsLoading(false)
     onMealSubmitted()
@@ -106,10 +111,8 @@ export default function LogScreen({ onMealSubmitted }) {
       updateMeal(mealId, { analysis, status: 'done' })
       clearPendingData(mealId)
     } catch (err) {
-      const msg = err instanceof TypeError
-        ? 'Network error — check your connection and API key.'
-        : err.message
-      updateMeal(mealId, { status: 'error', errorMessage: msg })
+      hapticError()
+      updateMeal(mealId, { status: 'error', errorMessage: friendlyError(err) })
       clearPendingData(mealId)
     }
   }

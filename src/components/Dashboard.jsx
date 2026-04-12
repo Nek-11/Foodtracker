@@ -3,20 +3,38 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
   Tooltip, ReferenceLine, BarChart, Bar, Cell
 } from 'recharts'
-import { getDailyTotals, getLast7DaysTotals, getGoals } from '../services/storage.js'
-import { fmt, pct, progressBgColor, formatDate, MACRO_LABELS } from '../utils/nutritionUtils.js'
+import { getDailyTotals, getLast7DaysTotals, getGoals, getMealsByDate } from '../services/storage.js'
+import { fmt, pct, progressBgColor, formatDate, MACRO_LABELS, getMealCategory, CATEGORY_STYLES } from '../utils/nutritionUtils.js'
 
 export default function Dashboard({ refreshKey }) {
-  const [totals,   setTotals]   = useState({})
-  const [goals,    setGoals]    = useState({})
-  const [weekData, setWeekData] = useState([])
+  const [totals,          setTotals]          = useState({})
+  const [goals,           setGoals]           = useState({})
+  const [weekData,        setWeekData]        = useState([])
+  const [mealsByCategory, setMealsByCategory] = useState([])
+  const [weekInsights,    setWeekInsights]    = useState([])
+  const [weekStats,       setWeekStats]       = useState(null)
 
   useEffect(() => {
     const d = new Date()
     const today = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
     setTotals(getDailyTotals(today))
-    setGoals(getGoals())
-    const week = getLast7DaysTotals().map(({ date, totals: t }) => ({
+    const g = getGoals()
+    setGoals(g)
+
+    // Meal breakdown by category for today
+    const todayMeals = getMealsByDate(today).filter(m => m.analysis)
+    const catMap = {}
+    todayMeals.forEach(m => {
+      const cat = getMealCategory(m.timestamp, m.analysis.totals.calories || 0)
+      if (!catMap[cat]) catMap[cat] = { cal: 0, count: 0 }
+      catMap[cat].cal   += m.analysis.totals.calories || 0
+      catMap[cat].count += 1
+    })
+    const order = ['Breakfast', 'Lunch', 'Snack', 'Dinner']
+    setMealsByCategory(order.filter(c => catMap[c]).map(c => ({ cat: c, ...catMap[c] })))
+
+    const raw7 = getLast7DaysTotals()
+    const week = raw7.map(({ date, totals: t }) => ({
       day: formatDate(date) === 'Today'
         ? 'Today'
         : new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' }),
@@ -24,6 +42,41 @@ export default function Dashboard({ refreshKey }) {
       protein:  fmt(t.proteinG),
     }))
     setWeekData(week)
+
+    // Weekly insights (only days with >300 kcal logged count as "active")
+    const active = raw7.filter(d => d.totals.calories > 300)
+    if (active.length >= 2) {
+      const avg = key => active.reduce((s, d) => s + d.totals[key], 0) / active.length
+      const avgCal     = avg('calories')
+      const avgProtein = avg('proteinG')
+      const avgSugar   = avg('sugarG')
+      const avgSodium  = avg('sodiumMg')
+
+      const daysOverCal    = active.filter(d => d.totals.calories  > g.calories  * 1.15).length
+      const daysLowCal     = active.filter(d => d.totals.calories  < g.calories  * 0.65).length
+      const daysLowProtein = active.filter(d => d.totals.proteinG  < g.proteinG  * 0.8).length
+      const daysHitProtein = active.filter(d => d.totals.proteinG  >= g.proteinG * 0.95).length
+      const daysHighSugar  = active.filter(d => d.totals.sugarG    > g.sugarG    * 1.2).length
+      const daysHighSodium = active.filter(d => d.totals.sodiumMg  > g.sodiumMg  * 1.2).length
+      const half = Math.ceil(active.length / 2)
+
+      setWeekStats({ avgCal: Math.round(avgCal), avgProtein: Math.round(avgProtein), activeDays: active.length })
+
+      const ins = []
+      if (daysOverCal    >= half) ins.push({ type: 'warn',  text: `Over calorie goal ${daysOverCal}/${active.length} days` })
+      if (daysLowCal     >= half) ins.push({ type: 'warn',  text: `Low calorie intake ${daysLowCal}/${active.length} days — make sure you're eating enough` })
+      if (daysLowProtein >= half) ins.push({ type: 'warn',  text: `Protein below goal ${daysLowProtein}/${active.length} days (avg ${Math.round(avgProtein)}g)` })
+      if (daysHighSugar  >= half) ins.push({ type: 'warn',  text: `High sugar ${daysHighSugar}/${active.length} days (avg ${Math.round(avgSugar)}g vs ${g.sugarG}g goal)` })
+      if (daysHighSodium >= half) ins.push({ type: 'warn',  text: `High sodium ${daysHighSodium}/${active.length} days (avg ${Math.round(avgSodium)}mg vs ${g.sodiumMg}mg goal)` })
+      if (daysHitProtein >= Math.ceil(active.length * 0.7))
+        ins.push({ type: 'good',  text: `Protein goal hit ${daysHitProtein}/${active.length} days — great consistency` })
+      if (avgCal >= g.calories * 0.85 && avgCal <= g.calories * 1.1 && daysOverCal < half)
+        ins.push({ type: 'good',  text: `Calorie intake on track this week (avg ${Math.round(avgCal)} kcal)` })
+      setWeekInsights(ins)
+    } else {
+      setWeekStats(null)
+      setWeekInsights([])
+    }
   }, [refreshKey])
 
   const calPct = pct(totals.calories, goals.calories)
@@ -86,6 +139,23 @@ export default function Dashboard({ refreshKey }) {
         </div>
       </section>
 
+      {/* Today's meals by category */}
+      {mealsByCategory.length > 0 && (
+        <section className="mx-4 mt-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-cream-500 dark:text-pine-400 mb-2 px-1">
+            Today's Meals
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {mealsByCategory.map(({ cat, cal, count }) => (
+              <div key={cat} className={`flex items-center gap-2 px-3 py-2 rounded-xl ${CATEGORY_STYLES[cat].pill}`}>
+                <span className="text-xs font-semibold">{cat}</span>
+                <span className="text-xs opacity-70">{fmt(cal)} kcal{count > 1 ? ` · ${count}` : ''}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* 7-day calorie chart */}
       <section className="mx-4 mt-4 rounded-2xl px-4 pt-4 pb-3 bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800">
         <p className="text-xs font-semibold uppercase tracking-wider text-cream-500 dark:text-pine-400 mb-4">
@@ -131,6 +201,47 @@ export default function Dashboard({ refreshKey }) {
           </LineChart>
         </ResponsiveContainer>
       </section>
+
+      {/* Weekly summary */}
+      {weekStats && (
+        <section className="mx-4 mt-3 mb-4 rounded-2xl px-4 py-4 bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800">
+          <p className="text-xs font-semibold uppercase tracking-wider text-cream-500 dark:text-pine-400 mb-3">
+            Weekly Summary
+          </p>
+
+          {/* Stat pills */}
+          <div className="flex gap-3 mb-3 flex-wrap">
+            <div className="flex-1 min-w-[80px] text-center rounded-xl py-2 bg-cream-100 dark:bg-pine-800">
+              <p className="text-[10px] text-cream-500 dark:text-pine-400">Avg / day</p>
+              <p className="text-sm font-bold text-pine-800 dark:text-cream-200 mt-0.5">{weekStats.avgCal} kcal</p>
+            </div>
+            <div className="flex-1 min-w-[80px] text-center rounded-xl py-2 bg-cream-100 dark:bg-pine-800">
+              <p className="text-[10px] text-cream-500 dark:text-pine-400">Avg protein</p>
+              <p className="text-sm font-bold text-pine-800 dark:text-cream-200 mt-0.5">{weekStats.avgProtein}g</p>
+            </div>
+            <div className="flex-1 min-w-[80px] text-center rounded-xl py-2 bg-cream-100 dark:bg-pine-800">
+              <p className="text-[10px] text-cream-500 dark:text-pine-400">Days logged</p>
+              <p className="text-sm font-bold text-pine-800 dark:text-cream-200 mt-0.5">{weekStats.activeDays} / 7</p>
+            </div>
+          </div>
+
+          {/* Insights */}
+          {weekInsights.length > 0 && (
+            <div className="space-y-2">
+              {weekInsights.map((ins, i) => (
+                <div key={i} className={`flex items-start gap-2 rounded-xl px-3 py-2 text-xs ${
+                  ins.type === 'warn'
+                    ? 'bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40'
+                    : 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40'
+                }`}>
+                  <span className="mt-0.5 flex-shrink-0">{ins.type === 'warn' ? '⚠' : '✓'}</span>
+                  <span>{ins.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   )
 }

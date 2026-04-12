@@ -20,7 +20,7 @@ const DEFAULT_SETTINGS = {
   claudeApiKey: '',
   openaiApiKey: '',
   resetHour:    2,    // meals logged before 2am count as "previous day"
-  theme:        'dark',
+  theme:        'system',
 }
 
 // ─── Meals ───────────────────────────────────────────────────────────────────

@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
-import { ClipboardList, ChevronDown, ChevronUp, Trash2, RefreshCw, Pencil, Check, X, AlertTriangle, Loader } from 'lucide-react'
-import { getMeals, deleteMeal, updateMeal, getPendingData, clearPendingData, getSettings } from '../services/storage.js'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { ClipboardList, ChevronDown, ChevronUp, Trash2, RefreshCw, Pencil, Check, X, AlertTriangle, Loader, Search } from 'lucide-react'
+import { hapticLight, hapticSuccess, hapticError, hapticWarning } from '../utils/haptics.js'
+import { friendlyError } from '../utils/errorMessages.js'
+import { getMeals, deleteMeal, saveMeal, updateMeal, getPendingData, clearPendingData, getSettings } from '../services/storage.js'
 import { analyzeMeal, reanalyzeMeal } from '../services/analyzer.js'
-import { fmt, formatDate, formatTime, MACRO_LABELS } from '../utils/nutritionUtils.js'
+import { fmt, formatDate, formatTime, MACRO_LABELS, getMealCategory, CATEGORY_STYLES } from '../utils/nutritionUtils.js'
 
 function getDateKeyLocal(isoTimestamp, resetHour) {
   const d = new Date(isoTimestamp)
@@ -24,8 +26,11 @@ function groupByDate(meals, resetHour) {
 }
 
 export default function History({ refreshKey, onRefresh }) {
-  const [meals,    setMeals]    = useState([])
-  const [expanded, setExpanded] = useState(null)
+  const [meals,       setMeals]       = useState([])
+  const [expanded,    setExpanded]    = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [undoMeal,    setUndoMeal]    = useState(null)
+  const undoTimerRef = useRef(null)
   const resetHour = getSettings().resetHour ?? 2
 
   function refresh() {
@@ -46,6 +51,7 @@ export default function History({ refreshKey, onRefresh }) {
     const pending = getPendingData(meal.id)
     if (!pending) return
 
+    hapticLight()
     updateMeal(meal.id, { status: 'analyzing', errorMessage: null })
     refresh()
 
@@ -58,27 +64,42 @@ export default function History({ refreshKey, onRefresh }) {
       updateMeal(meal.id, { analysis, status: 'done' })
       clearPendingData(meal.id)
     } catch (err) {
-      const msg = err instanceof TypeError
-        ? 'Network error — check your connection and API key.'
-        : err.message
-      updateMeal(meal.id, { status: 'error', errorMessage: msg })
+      updateMeal(meal.id, { status: 'error', errorMessage: friendlyError(err) })
     }
     refresh()
     if (onRefresh) onRefresh()
   }
 
   function handleDelete(id) {
+    const meal = meals.find(m => m.id === id)
+    if (!meal) return
+    hapticLight()
     deleteMeal(id)
     refresh()
     if (expanded === id) setExpanded(null)
     if (onRefresh) onRefresh()
+
+    // Show undo toast — re-save the meal if user taps Undo within 4 s
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
+    setUndoMeal(meal)
+    undoTimerRef.current = setTimeout(() => setUndoMeal(null), 4000)
   }
 
-  async function handleReanalyze(meal) {
-    const pending = getPendingData(meal.id)
-    // Build clarification note from original note + any user notes added since
-    const contextNote = [meal.userNotes, meal.note].filter(Boolean).join('\n')
+  function handleUndoDelete() {
+    if (!undoMeal) return
+    clearTimeout(undoTimerRef.current)
+    saveMeal(undoMeal)
+    setUndoMeal(null)
+    refresh()
+    if (onRefresh) onRefresh()
+  }
 
+  async function handleReanalyze(meal, overrideNote = null) {
+    const pending = getPendingData(meal.id)
+    // Build clarification note from override, userNotes, or original note
+    const contextNote = overrideNote ?? [meal.userNotes, meal.note].filter(Boolean).join('\n')
+
+    hapticLight()
     updateMeal(meal.id, { status: 'analyzing', errorMessage: null })
     refresh()
 
@@ -89,12 +110,11 @@ export default function History({ refreshKey, onRefresh }) {
         note:             contextNote,
         previousAnalysis: meal.analysis,
       })
+      hapticSuccess()
       updateMeal(meal.id, { analysis, status: 'done' })
     } catch (err) {
-      const msg = err instanceof TypeError
-        ? 'Network error — check your connection and API key.'
-        : err.message
-      updateMeal(meal.id, { status: 'error', errorMessage: msg })
+      hapticError()
+      updateMeal(meal.id, { status: 'error', errorMessage: friendlyError(err) })
     }
     refresh()
     if (onRefresh) onRefresh()
@@ -104,6 +124,17 @@ export default function History({ refreshKey, onRefresh }) {
     updateMeal(id, { userNotes: note })
     refresh()
   }
+
+  // Filter meals by search query
+  const q = searchQuery.trim().toLowerCase()
+  const filteredMeals = q
+    ? meals.filter(m =>
+        m.analysis?.mealSummary?.toLowerCase().includes(q) ||
+        m.note?.toLowerCase().includes(q) ||
+        m.userNotes?.toLowerCase().includes(q) ||
+        m.analysis?.items?.some(item => item.name?.toLowerCase().includes(q))
+      )
+    : meals
 
   if (!meals.length) {
     return (
@@ -119,13 +150,32 @@ export default function History({ refreshKey, onRefresh }) {
     )
   }
 
-  const groups = groupByDate(meals, resetHour)
+  const groups = groupByDate(filteredMeals, resetHour)
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-8">
+    <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-8 relative">
       <div className="px-4 pb-2 pt-safe">
         <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">History</h1>
-        <p className="text-sm mt-0.5 text-cream-500 dark:text-pine-400">{meals.length} meal{meals.length !== 1 ? 's' : ''} logged</p>
+        <p className="text-sm mt-0.5 text-cream-500 dark:text-pine-400">
+          {q ? `${filteredMeals.length} of ${meals.length}` : meals.length} meal{meals.length !== 1 ? 's' : ''}
+        </p>
+      </div>
+
+      {/* Search bar */}
+      <div className="px-4 pb-2">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-cream-400 dark:text-pine-500 pointer-events-none" />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search meals…"
+            className="w-full pl-8 pr-3 py-2 rounded-xl text-sm bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800 text-pine-900 dark:text-cream-100 placeholder-cream-400 dark:placeholder-pine-500 outline-none focus:ring-2 focus:ring-pine-400"
+          />
+        </div>
+        {q && filteredMeals.length === 0 && (
+          <p className="text-xs text-cream-400 dark:text-pine-500 mt-2 text-center">No meals match "{searchQuery}"</p>
+        )}
       </div>
 
       {groups.map(([date, dateMeals]) => (
@@ -145,21 +195,37 @@ export default function History({ refreshKey, onRefresh }) {
                 onToggle={() => setExpanded(expanded === meal.id ? null : meal.id)}
                 onDelete={() => handleDelete(meal.id)}
                 onRetry={() => handleRetry(meal)}
-                onReanalyze={() => handleReanalyze(meal)}
+                onReanalyze={(note) => handleReanalyze(meal, note)}
                 onNoteUpdate={note => handleNoteUpdate(meal.id, note)}
               />
             ))}
           </div>
         </section>
       ))}
+
+      {/* Undo delete toast */}
+      {undoMeal && (
+        <div className="sticky bottom-4 left-0 right-0 flex justify-center px-4 animate-fade-in pointer-events-none">
+          <div className="pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-2xl bg-pine-800 dark:bg-pine-700 text-cream-100 text-sm shadow-xl">
+            <span className="opacity-80">Meal deleted</span>
+            <button
+              onClick={handleUndoDelete}
+              className="font-semibold text-pine-300 dark:text-pine-200 hover:text-white transition-colors">
+              Undo
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onReanalyze, onNoteUpdate }) {
   const { analysis, thumbnail, timestamp, note, status, errorMessage, userNotes, _isMock } = meal
-  const totals  = analysis?.totals || {}
-  const flagged = analysis?.flagged
+  const totals   = analysis?.totals || {}
+  const flagged  = analysis?.flagged
+  const category = getMealCategory(timestamp, totals.calories || 0)
+  const catStyle = CATEGORY_STYLES[category]
 
   const isAnalyzing    = status === 'analyzing'
   const isInterrupted  = status === 'interrupted'
@@ -209,18 +275,23 @@ function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onReanalyze, 
                 {flagged && <AlertTriangle size={12} className="text-amber-400 flex-shrink-0" />}
                 {_isMock  && <span className="text-[10px] text-amber-500 dark:text-amber-400 flex-shrink-0">demo</span>}
               </div>
-              <p className="text-xs text-cream-500 dark:text-pine-400 mt-0.5">
-                {formatTime(timestamp)}
-                {analysis && (
-                  <>
-                    <span className="mx-1.5 text-cream-300 dark:text-pine-600">·</span>
-                    {fmt(totals.proteinG)}g P · {fmt(totals.carbsG)}g C · {fmt(totals.fatG)}g F
-                  </>
-                )}
-                {(isError || isInterrupted) && (
-                  <span className="text-red-400 ml-1">· Failed</span>
-                )}
-              </p>
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${catStyle.pill}`}>
+                  {category}
+                </span>
+                <p className="text-xs text-cream-500 dark:text-pine-400">
+                  {formatTime(timestamp)}
+                  {analysis && (
+                    <>
+                      <span className="mx-1.5 text-cream-300 dark:text-pine-600">·</span>
+                      {fmt(totals.proteinG)}g P · {fmt(totals.carbsG)}g C · {fmt(totals.fatG)}g F
+                    </>
+                  )}
+                  {(isError || isInterrupted) && (
+                    <span className="text-red-400 ml-1">· Failed</span>
+                  )}
+                </p>
+              </div>
             </>
           )}
         </div>
@@ -285,11 +356,28 @@ function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onReanalyze, 
               )}
 
               {flagged && analysis.questions?.length > 0 && (
-                <div className="rounded-xl p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50">
-                  <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1">Flagged uncertainties</p>
-                  {analysis.questions.map((q, i) => (
-                    <p key={i} className="text-xs text-amber-700 dark:text-amber-300">{i + 1}. {q}</p>
-                  ))}
+                <div className="rounded-xl p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50 space-y-3">
+                  <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+                    Tap an answer to reanalyze with that context
+                  </p>
+                  {analysis.questions.map((question, i) => {
+                    const opts = parseQuestionOptions(question)
+                    return (
+                      <div key={i} className="space-y-1.5">
+                        <p className="text-xs text-amber-700 dark:text-amber-300">{question}</p>
+                        <div className="flex gap-2 flex-wrap">
+                          {opts.map(opt => (
+                            <button
+                              key={opt}
+                              onClick={() => onReanalyze(`${question} → ${opt}`)}
+                              className="px-3 py-1 rounded-full text-xs font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 active:scale-95 transition-all hover:bg-amber-200 dark:hover:bg-amber-900/60">
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </>
@@ -320,6 +408,24 @@ function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onReanalyze, 
       )}
     </div>
   )
+}
+
+/**
+ * Try to extract two options from questions like "Was it fried or baked?"
+ * Falls back to ["Yes", "No"] for yes/no style questions.
+ */
+function parseQuestionOptions(question) {
+  // Match "X or Y" at end of question, ignoring trailing punctuation
+  const match = question.match(/\b([\w\s]{2,20})\s+or\s+([\w\s]{2,20}?)[\?.,]?\s*$/i)
+  if (match) {
+    const a = match[1].trim().replace(/^(was it|is it|were they|is this)\s+/i, '')
+    const b = match[2].trim()
+    if (a && b && a.split(' ').length <= 3 && b.split(' ').length <= 3) {
+      // Capitalise first letter
+      return [a[0].toUpperCase() + a.slice(1), b[0].toUpperCase() + b.slice(1)]
+    }
+  }
+  return ['Yes', 'No']
 }
 
 function UserNoteEditor({ value, onSave }) {
