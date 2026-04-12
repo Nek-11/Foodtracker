@@ -25,6 +25,13 @@ function resolveParams(settings) {
   return { provider, apiKey }
 }
 
+function appendHabits(note, settings) {
+  const habits = (settings.habits || []).filter(h => h.trim())
+  if (habits.length === 0) return note
+  const habitsContext = `\n\nRecurring habits (always apply these to my meals):\n${habits.map(h => `- ${h}`).join('\n')}`
+  return (note || '') + habitsContext
+}
+
 export async function analyzeMeal({ foodImage, labelImage, note }) {
   const settings = getSettings()
   const { provider, apiKey } = resolveParams(settings)
@@ -39,7 +46,7 @@ export async function analyzeMeal({ foodImage, labelImage, note }) {
     maxTokens: CLAUDE_MAX_TOKENS,
     foodImage,
     labelImage,
-    note,
+    note: appendHabits(note, settings),
   }
 
   return provider === 'openai'
@@ -61,7 +68,7 @@ export async function reanalyzeMeal({ foodImage, labelImage, note, previousAnaly
     maxTokens: CLAUDE_MAX_TOKENS,
     foodImage,
     labelImage,
-    note,
+    note: appendHabits(note, settings),
     previousAnalysis,
   }
 

@@ -11,6 +11,7 @@ import {
   fmt, formatDate, formatTime, MACRO_LABELS,
   getMealCategory, getMealTypes, CATEGORY_STYLES, ALL_MEAL_TYPES,
 } from '../utils/nutritionUtils.js'
+import PullToRefresh from './PullToRefresh.jsx'
 function getDateKeyLocal(isoTimestamp, resetHour) {
   const d = new Date(isoTimestamp)
   if (d.getHours() < resetHour) d.setDate(d.getDate() - 1)
@@ -201,7 +202,7 @@ export default function History({ refreshKey, onRefresh }) {
   const groups = groupByDate(filteredMeals, resetHour)
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-8 relative">
+    <PullToRefresh onRefresh={refresh} className="flex flex-col h-full overflow-y-auto scroll-touch pb-8 relative">
       <div className="px-4 pb-2 pt-safe">
         <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">History</h1>
         <p className="text-sm mt-0.5 text-cream-500 dark:text-pine-400">
@@ -342,7 +343,7 @@ export default function History({ refreshKey, onRefresh }) {
           </div>
         </div>
       )}
-    </div>
+    </PullToRefresh>
   )
 }
 
@@ -355,6 +356,7 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
   const [editName,  setEditName]  = useState('')
   const [editTypes, setEditTypes] = useState([])
   const [editNote,  setEditNote]  = useState('')
+  const [selectedAnswers, setSelectedAnswers] = useState({})
 
   const totals    = analysis?.totals || {}
   const flagged   = analysis?.flagged
@@ -372,24 +374,61 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
     setIsEditing(true)
   }
 
-  function cancelEdit() {
-    setIsEditing(false)
-  }
-
-  function saveEdit(reanalyze = false) {
+  function closeEdit() {
+    // Auto-save on close
     onSaveEdit({
       customName:      editName.trim(),
       mealTypes:       editTypes,
       note:            editNote.trim(),
-      shouldReanalyze: reanalyze,
+      shouldReanalyze: false,
+    })
+    setIsEditing(false)
+  }
+
+  function saveAndReanalyze() {
+    onSaveEdit({
+      customName:      editName.trim(),
+      mealTypes:       editTypes,
+      note:            editNote.trim(),
+      shouldReanalyze: true,
     })
     setIsEditing(false)
   }
 
   function toggleEditType(type) {
-    setEditTypes(prev =>
-      prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
-    )
+    const newTypes = editTypes.includes(type) ? editTypes.filter(t => t !== type) : [...editTypes, type]
+    setEditTypes(newTypes)
+    // Auto-save meal type change
+    onSaveEdit({
+      customName:      editName.trim(),
+      mealTypes:       newTypes,
+      note:            editNote.trim(),
+      shouldReanalyze: false,
+    })
+  }
+
+  function toggleAnswer(qIndex, opt) {
+    setSelectedAnswers(prev => {
+      const current = prev[qIndex]
+      if (current === opt) {
+        const next = { ...prev }
+        delete next[qIndex]
+        return next
+      }
+      return { ...prev, [qIndex]: opt }
+    })
+  }
+
+  function handleReanalyzeWithAnswers() {
+    const answers = Object.entries(selectedAnswers)
+      .map(([qIdx, opt]) => {
+        const rawQ = analysis.questions[qIdx]
+        const q = normalizeQuestion(rawQ)
+        return `${q.text} → ${opt}`
+      })
+      .join('\n')
+    setSelectedAnswers({})
+    onReanalyze(answers)
   }
 
   // Normalize questions for both old (string) and new (object) formats
@@ -401,6 +440,7 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
   }
 
   const displayName = meal.customName || analysis?.mealSummary || note || 'Unnamed meal'
+  const hasSelectedAnswers = Object.keys(selectedAnswers).length > 0
 
   return (
     <div className={`rounded-2xl overflow-hidden transition-all animate-fade-in ${
@@ -526,11 +566,11 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
                 </div>
               )}
 
-              {/* Clarifying questions */}
+              {/* Clarifying questions — select answers, then hit Reanalyze */}
               {flagged && analysis.questions?.length > 0 && (
                 <div className="rounded-xl p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50 space-y-3">
                   <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">
-                    Tap an answer to reanalyze with that context
+                    Select your answers, then tap Reanalyze
                   </p>
                   {analysis.questions.map((rawQ, i) => {
                     const q = normalizeQuestion(rawQ)
@@ -541,8 +581,12 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
                           {q.options.map(opt => (
                             <button
                               key={opt}
-                              onClick={() => onReanalyze(`${q.text} → ${opt}`)}
-                              className="px-3 py-1 rounded-full text-xs font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 active:scale-95 transition-all hover:bg-amber-200 dark:hover:bg-amber-900/60">
+                              onClick={() => toggleAnswer(i, opt)}
+                              className={`px-3 py-1 rounded-full text-xs font-medium border active:scale-95 transition-all ${
+                                selectedAnswers[i] === opt
+                                  ? 'bg-amber-500 dark:bg-amber-600 text-white border-amber-600 dark:border-amber-500 ring-1 ring-amber-400/40'
+                                  : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700/60 hover:bg-amber-200 dark:hover:bg-amber-900/60'
+                              }`}>
                               {opt}
                             </button>
                           ))}
@@ -550,6 +594,13 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
                       </div>
                     )
                   })}
+                  {hasSelectedAnswers && (
+                    <button
+                      onClick={handleReanalyzeWithAnswers}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold active:scale-95 transition-all bg-pine-500 dark:bg-pine-400 text-white dark:text-pine-950 mt-1">
+                      <RefreshCw size={12} /> Reanalyze
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -636,20 +687,15 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
               {/* Edit actions */}
               <div className="flex gap-2">
                 <button
-                  onClick={cancelEdit}
+                  onClick={closeEdit}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-cream-200 dark:bg-pine-800 text-pine-700 dark:text-cream-300 text-xs font-medium active:scale-95 transition-all">
-                  <X size={12} /> Cancel
-                </button>
-                <button
-                  onClick={() => saveEdit(false)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-cream-100 dark:bg-pine-800 text-pine-600 dark:text-pine-300 text-xs font-medium border border-cream-300 dark:border-pine-700 active:scale-95 transition-all">
-                  <Check size={12} /> Save
+                  <Check size={12} /> Done
                 </button>
                 {editNote.trim() && (
                   <button
-                    onClick={() => saveEdit(true)}
+                    onClick={saveAndReanalyze}
                     className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold active:scale-95 transition-all bg-pine-500 dark:bg-pine-400 text-white dark:text-pine-950">
-                    <RefreshCw size={12} /> Save &amp; Reanalyze
+                    <RefreshCw size={12} /> Reanalyze
                   </button>
                 )}
               </div>

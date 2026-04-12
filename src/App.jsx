@@ -110,7 +110,7 @@ export default function App() {
             }`}
           >
             {tab === 'log'       && <LogScreen  onMealSubmitted={handleMealSubmitted} />}
-            {tab === 'dashboard' && <Dashboard  refreshKey={refreshKey} />}
+            {tab === 'dashboard' && <Dashboard  refreshKey={refreshKey} onRefresh={handleRefresh} />}
             {tab === 'history'   && <History    refreshKey={refreshKey} onRefresh={handleRefresh} />}
             {tab === 'settings'  && <Settings   onRefresh={handleRefresh} />}
           </div>
