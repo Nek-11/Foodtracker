@@ -5,6 +5,7 @@ import { compressImage, makeThumbnail } from '../utils/imageUtils.js'
 import { analyzeMeal } from '../services/analyzer.js'
 import { saveMeal, savePendingData, updateMeal, clearPendingData } from '../services/storage.js'
 import { startListening, isSpeechSupported } from '../services/speech.js'
+import { hapticSuccess, hapticError, hapticLight } from '../utils/haptics.js'
 
 export default function LogScreen({ onMealSubmitted }) {
   const [foodImage,   setFoodImage]   = useState(null)
@@ -46,6 +47,7 @@ export default function LogScreen({ onMealSubmitted }) {
   // ── Voice recording ────────────────────────────────────────────────────────
 
   function toggleRecording() {
+    hapticLight()
     if (isRecording) {
       stopListeningRef.current?.(); stopListeningRef.current = null; setIsRecording(false)
       return
@@ -69,6 +71,7 @@ export default function LogScreen({ onMealSubmitted }) {
 
   async function handleSubmit() {
     if (!foodImage && !note.trim()) {
+      hapticError()
       setError('Add a photo or describe your meal first.')
       return
     }
@@ -92,6 +95,7 @@ export default function LogScreen({ onMealSubmitted }) {
     savePendingData(mealId, { foodImage, labelImage, note: note.trim() })
 
     // Navigate to History right away — analysis continues in background
+    hapticSuccess()
     clearFood()
     setIsLoading(false)
     onMealSubmitted()

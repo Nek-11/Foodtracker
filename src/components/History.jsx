@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { ClipboardList, ChevronDown, ChevronUp, Trash2, RefreshCw, Pencil, Check, X, AlertTriangle, Loader } from 'lucide-react'
+import { hapticLight, hapticSuccess, hapticError, hapticWarning } from '../utils/haptics.js'
 import { getMeals, deleteMeal, updateMeal, getPendingData, clearPendingData, getSettings } from '../services/storage.js'
 import { analyzeMeal, reanalyzeMeal } from '../services/analyzer.js'
 import { fmt, formatDate, formatTime, MACRO_LABELS } from '../utils/nutritionUtils.js'
@@ -46,6 +47,7 @@ export default function History({ refreshKey, onRefresh }) {
     const pending = getPendingData(meal.id)
     if (!pending) return
 
+    hapticLight()
     updateMeal(meal.id, { status: 'analyzing', errorMessage: null })
     refresh()
 
@@ -74,11 +76,12 @@ export default function History({ refreshKey, onRefresh }) {
     if (onRefresh) onRefresh()
   }
 
-  async function handleReanalyze(meal) {
+  async function handleReanalyze(meal, overrideNote = null) {
     const pending = getPendingData(meal.id)
-    // Build clarification note from original note + any user notes added since
-    const contextNote = [meal.userNotes, meal.note].filter(Boolean).join('\n')
+    // Build clarification note from override, userNotes, or original note
+    const contextNote = overrideNote ?? [meal.userNotes, meal.note].filter(Boolean).join('\n')
 
+    hapticLight()
     updateMeal(meal.id, { status: 'analyzing', errorMessage: null })
     refresh()
 
@@ -89,8 +92,10 @@ export default function History({ refreshKey, onRefresh }) {
         note:             contextNote,
         previousAnalysis: meal.analysis,
       })
+      hapticSuccess()
       updateMeal(meal.id, { analysis, status: 'done' })
     } catch (err) {
+      hapticError()
       const msg = err instanceof TypeError
         ? 'Network error — check your connection and API key.'
         : err.message
@@ -145,7 +150,7 @@ export default function History({ refreshKey, onRefresh }) {
                 onToggle={() => setExpanded(expanded === meal.id ? null : meal.id)}
                 onDelete={() => handleDelete(meal.id)}
                 onRetry={() => handleRetry(meal)}
-                onReanalyze={() => handleReanalyze(meal)}
+                onReanalyze={(note) => handleReanalyze(meal, note)}
                 onNoteUpdate={note => handleNoteUpdate(meal.id, note)}
               />
             ))}
