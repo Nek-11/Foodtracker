@@ -356,11 +356,28 @@ function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onReanalyze, 
               )}
 
               {flagged && analysis.questions?.length > 0 && (
-                <div className="rounded-xl p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50">
-                  <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1">Flagged uncertainties</p>
-                  {analysis.questions.map((q, i) => (
-                    <p key={i} className="text-xs text-amber-700 dark:text-amber-300">{i + 1}. {q}</p>
-                  ))}
+                <div className="rounded-xl p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50 space-y-3">
+                  <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+                    Tap an answer to reanalyze with that context
+                  </p>
+                  {analysis.questions.map((question, i) => {
+                    const opts = parseQuestionOptions(question)
+                    return (
+                      <div key={i} className="space-y-1.5">
+                        <p className="text-xs text-amber-700 dark:text-amber-300">{question}</p>
+                        <div className="flex gap-2 flex-wrap">
+                          {opts.map(opt => (
+                            <button
+                              key={opt}
+                              onClick={() => onReanalyze(`${question} → ${opt}`)}
+                              className="px-3 py-1 rounded-full text-xs font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 active:scale-95 transition-all hover:bg-amber-200 dark:hover:bg-amber-900/60">
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </>
@@ -391,6 +408,24 @@ function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onReanalyze, 
       )}
     </div>
   )
+}
+
+/**
+ * Try to extract two options from questions like "Was it fried or baked?"
+ * Falls back to ["Yes", "No"] for yes/no style questions.
+ */
+function parseQuestionOptions(question) {
+  // Match "X or Y" at end of question, ignoring trailing punctuation
+  const match = question.match(/\b([\w\s]{2,20})\s+or\s+([\w\s]{2,20}?)[\?.,]?\s*$/i)
+  if (match) {
+    const a = match[1].trim().replace(/^(was it|is it|were they|is this)\s+/i, '')
+    const b = match[2].trim()
+    if (a && b && a.split(' ').length <= 3 && b.split(' ').length <= 3) {
+      // Capitalise first letter
+      return [a[0].toUpperCase() + a.slice(1), b[0].toUpperCase() + b.slice(1)]
+    }
+  }
+  return ['Yes', 'No']
 }
 
 function UserNoteEditor({ value, onSave }) {
