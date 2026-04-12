@@ -18,7 +18,7 @@ Schema:
 {
   "items": [
     {
-      "name": string,           // specific food name (e.g. "Grilled chicken breast")
+      "name": string,             // specific food name (e.g. "Grilled chicken breast")
       "estimatedWeightG": number, // estimated weight in grams
       "calories": number,
       "proteinG": number,
@@ -40,18 +40,39 @@ Schema:
   },
   "confidence": "high" | "medium" | "low",
   "flagged": boolean,
-  "questions": string[],  // list uncertainty questions if flagged is true, else empty array
-  "mealSummary": string   // 1-line human-readable summary (e.g. "Grilled salmon with rice and salad")
+  "questions": [               // ONLY include if flagged=true, else empty array []
+    {
+      "text": string,          // a specific question whose answer meaningfully changes the nutrition estimate
+      "options": string[]      // 2–5 concrete answer options the user can tap
+    }
+  ],
+  "notes": string[],           // short tips like "Specify the full recipe for more precise results" — not questions
+  "mealSummary": string        // 1-line human-readable summary (e.g. "Grilled salmon with rice and salad")
 }
 
 Rules:
 - Always estimate — never refuse. Approximations are expected and acceptable.
 - Use visual cues (plate size, food portions, relative sizes) to estimate weights.
 - If a nutrition label image is provided, use its values per 100g and only estimate the weight.
-- Set flagged=true and add specific questions when: cooking method matters (fried vs baked), you can't distinguish similar ingredients (brown vs white rice), or a key sauce/dressing might significantly change macros.
-- For voice/text descriptions with no image: estimate based on typical serving sizes for the described items.
 - Round all numbers to the nearest integer.
-- Sodium in mg, everything else in grams or kcal.`
+- Sodium in mg, everything else in grams or kcal.
+
+Question rules (VERY IMPORTANT):
+- Set flagged=true ONLY when a specific unknown would change the calorie or macro estimate by more than ~15%.
+- ONLY ask questions where knowing the answer lets you give a significantly better estimate.
+- DO NOT ask vague or unanswerable questions like "can you specify the recipe?" or "is this homemade?". Those go in "notes" instead.
+- Max 3 questions. Each question MUST have concrete answer options the user can tap.
+- Good question examples:
+    - Cooking fat: { "text": "How much oil or butter was used?", "options": ["None", "1 tsp", "1 tbsp", "2+ tbsp"] }
+    - Sugar: { "text": "Was sugar added, and how much?", "options": ["None", "1 tsp", "1 tbsp", "2+ tbsp"] }
+    - Cooking method: { "text": "How was this cooked?", "options": ["Fried", "Baked", "Steamed", "Boiled"] }
+    - Ingredient ambiguity: { "text": "What type of rice is this?", "options": ["White rice", "Brown rice", "Jasmine rice"] }
+    - Sauce: { "text": "What sauce is on this?", "options": ["Tomato-based", "Cream-based", "Oil-based", "No sauce"] }
+    - Portion: { "text": "How heavy was the meat portion approximately?", "options": ["100g", "150g", "200g", "250g+"] }
+- Use metric units (grams, ml) except for teaspoon (tsp) and tablespoon (tbsp) which are fine.
+- Do NOT use cups, ounces, or other imperial units.
+- For simple drinks (coffee, tea, juice, smoothie), only flag if significant additives are unknown.
+- Use "notes" for tips that don't require a tap-answer, e.g. "Specify the full recipe for more precise calorie estimates."`
 
 function buildContent(foodImage, labelImage, note) {
   if (!foodImage && !note?.trim()) {

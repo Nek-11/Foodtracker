@@ -85,11 +85,27 @@ export function getMealCategory(isoTimestamp, calories = 0) {
   return 'Snack'                                                               // 02:01–05:59
 }
 
+/**
+ * Get the display types for a meal.
+ * Respects manually assigned mealTypes; falls back to auto-computed category.
+ *
+ * @param {object} meal
+ * @returns {string[]} e.g. ['Dinner', 'Drink']
+ */
+export function getMealTypes(meal) {
+  if (meal.mealTypes && meal.mealTypes.length > 0) return meal.mealTypes
+  return [getMealCategory(meal.timestamp, meal.analysis?.totals?.calories || 0)]
+}
+
+/** All selectable meal types (for filters and edit mode). */
+export const ALL_MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Drink']
+
 export const CATEGORY_STYLES = {
   Breakfast: { pill: 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400' },
   Lunch:     { pill: 'bg-sky-100 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400' },
   Dinner:    { pill: 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-500 dark:text-indigo-400' },
   Snack:     { pill: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' },
+  Drink:     { pill: 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400' },
 }
 
 export const MACRO_LABELS = [
