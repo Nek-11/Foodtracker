@@ -1,42 +1,56 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
   Tooltip, ReferenceLine, BarChart, Bar, Cell
 } from 'recharts'
-import { getDailyTotals, getLast7DaysTotals, getGoals, getMealsByDate } from '../services/storage.js'
+import { getDailyTotals, getLast7DaysTotals, getGoals, getMealsByDate, getSettings } from '../services/storage.js'
 import { fmt, pct, progressBgColor, formatDate, MACRO_LABELS, getMealTypes, CATEGORY_STYLES } from '../utils/nutritionUtils.js'
 
+function todayStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+
 export default function Dashboard({ refreshKey }) {
+  const [selectedDate,    setSelectedDate]    = useState(todayStr)
   const [totals,          setTotals]          = useState({})
   const [goals,           setGoals]           = useState({})
   const [weekData,        setWeekData]        = useState([])
   const [mealsByCategory, setMealsByCategory] = useState([])
   const [weekInsights,    setWeekInsights]    = useState([])
   const [weekStats,       setWeekStats]       = useState(null)
+  const dateInputRef = useRef(null)
 
   useEffect(() => {
-    const d = new Date()
-    const today = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-    setTotals(getDailyTotals(today))
+    const settings = getSettings()
+    const timeSlots = settings.mealTimeSlots
+
+    setTotals(getDailyTotals(selectedDate))
     const g = getGoals()
     setGoals(g)
 
-    // Meal breakdown by category for today
-    const todayMeals = getMealsByDate(today).filter(m => m.analysis)
+    // Meal breakdown by category for the selected day
+    const dayMeals = getMealsByDate(selectedDate).filter(m => m.analysis)
     const catMap = {}
-    todayMeals.forEach(m => {
-      // Use manually-set types if available, otherwise auto-compute
-      const types = getMealTypes(m)
+    dayMeals.forEach(m => {
+      const types = getMealTypes(m, timeSlots)
       types.forEach(cat => {
         if (!catMap[cat]) catMap[cat] = { cal: 0, count: 0 }
-        // Divide calories evenly across multiple types to avoid double-counting
         catMap[cat].cal   += (m.analysis.totals.calories || 0) / types.length
         catMap[cat].count += 1 / types.length
       })
     })
     const order = ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Drink']
-    setMealsByCategory(order.filter(c => catMap[c]).map(c => ({ cat: c, cal: Math.round(catMap[c].cal), count: Math.round(catMap[c].count) || 1 })))
+    setMealsByCategory(
+      order.filter(c => catMap[c]).map(c => ({
+        cat: c,
+        cal: Math.round(catMap[c].cal),
+        count: Math.round(catMap[c].count) || 1,
+      }))
+    )
 
+    // 7-day chart — always relative to today
     const raw7 = getLast7DaysTotals()
     const week = raw7.map(({ date, totals: t }) => ({
       day: formatDate(date) === 'Today'
@@ -47,7 +61,6 @@ export default function Dashboard({ refreshKey }) {
     }))
     setWeekData(week)
 
-    // Weekly insights (only days with >300 kcal logged count as "active")
     const active = raw7.filter(d => d.totals.calories > 300)
     if (active.length >= 2) {
       const avg = key => active.reduce((s, d) => s + d.totals[key], 0) / active.length
@@ -81,22 +94,74 @@ export default function Dashboard({ refreshKey }) {
       setWeekStats(null)
       setWeekInsights([])
     }
-  }, [refreshKey])
+  }, [refreshKey, selectedDate])
 
   const calPct = pct(totals.calories, goals.calories)
+  const today  = todayStr()
+
+  function goDay(delta) {
+    const d = new Date(selectedDate + 'T12:00:00')
+    d.setDate(d.getDate() + delta)
+    const next = d.toISOString().slice(0, 10)
+    if (next <= today) setSelectedDate(next)
+  }
 
   return (
     <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-4">
 
+      {/* Header with date picker */}
       <div className="px-4 pb-2 pt-safe">
         <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">Stats</h1>
-        <p className="text-sm mt-0.5 text-cream-500 dark:text-pine-400">
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-        </p>
+        <div className="flex items-center gap-1 mt-1">
+          <button
+            onClick={() => goDay(-1)}
+            className="p-1.5 rounded-lg hover:bg-cream-200 dark:hover:bg-pine-800 text-cream-500 dark:text-pine-400 active:scale-90 transition-all"
+          >
+            <ChevronLeft size={16} />
+          </button>
+
+          {/* Tap to open native date picker */}
+          <div className="relative flex-1 text-center">
+            <button
+              onClick={() => dateInputRef.current?.showPicker?.()}
+              className="text-sm font-medium text-pine-700 dark:text-cream-300 hover:text-pine-500 dark:hover:text-pine-200 transition-colors py-1 px-2 rounded-lg hover:bg-cream-100 dark:hover:bg-pine-800"
+            >
+              {selectedDate === today
+                ? new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+                : new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+              }
+            </button>
+            <input
+              ref={dateInputRef}
+              type="date"
+              value={selectedDate}
+              max={today}
+              onChange={e => e.target.value && setSelectedDate(e.target.value)}
+              className="absolute inset-0 opacity-0 w-full cursor-pointer"
+            />
+          </div>
+
+          <button
+            onClick={() => goDay(1)}
+            disabled={selectedDate >= today}
+            className="p-1.5 rounded-lg hover:bg-cream-200 dark:hover:bg-pine-800 text-cream-500 dark:text-pine-400 active:scale-90 transition-all disabled:opacity-30"
+          >
+            <ChevronRight size={16} />
+          </button>
+
+          {selectedDate !== today && (
+            <button
+              onClick={() => setSelectedDate(today)}
+              className="text-xs font-semibold text-pine-500 dark:text-pine-300 px-2 py-1 rounded-lg bg-pine-100 dark:bg-pine-800 hover:bg-pine-200 dark:hover:bg-pine-700 transition-all flex-shrink-0"
+            >
+              Today
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Calorie hero */}
-      <section className="mx-4 mt-4 rounded-2xl px-5 py-5 bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800">
+      <section className="mx-4 mt-3 rounded-2xl px-5 py-5 bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800">
         <div className="flex items-end justify-between mb-3">
           <div>
             <p className="text-xs uppercase tracking-wider text-cream-500 dark:text-pine-400">Calories</p>
@@ -143,15 +208,15 @@ export default function Dashboard({ refreshKey }) {
         </div>
       </section>
 
-      {/* Today's meals by category */}
+      {/* Day's meals by category */}
       {mealsByCategory.length > 0 && (
         <section className="mx-4 mt-3">
           <p className="text-xs font-semibold uppercase tracking-wider text-cream-500 dark:text-pine-400 mb-2 px-1">
-            Today's Meals
+            {selectedDate === today ? "Today's Meals" : 'Meals'}
           </p>
           <div className="flex gap-2 flex-wrap">
             {mealsByCategory.map(({ cat, cal, count }) => (
-              <div key={cat} className={`flex items-center gap-2 px-3 py-2 rounded-xl ${CATEGORY_STYLES[cat].pill}`}>
+              <div key={cat} className={`flex items-center gap-2 px-3 py-2 rounded-xl ${(CATEGORY_STYLES[cat] || CATEGORY_STYLES.Snack).pill}`}>
                 <span className="text-xs font-semibold">{cat}</span>
                 <span className="text-xs opacity-70">{fmt(cal)} kcal{count > 1 ? ` · ${count}` : ''}</span>
               </div>
@@ -212,8 +277,6 @@ export default function Dashboard({ refreshKey }) {
           <p className="text-xs font-semibold uppercase tracking-wider text-cream-500 dark:text-pine-400 mb-3">
             Weekly Summary
           </p>
-
-          {/* Stat pills */}
           <div className="flex gap-3 mb-3 flex-wrap">
             <div className="flex-1 min-w-[80px] text-center rounded-xl py-2 bg-cream-100 dark:bg-pine-800">
               <p className="text-[10px] text-cream-500 dark:text-pine-400">Avg / day</p>
@@ -228,8 +291,6 @@ export default function Dashboard({ refreshKey }) {
               <p className="text-sm font-bold text-pine-800 dark:text-cream-200 mt-0.5">{weekStats.activeDays} / 7</p>
             </div>
           </div>
-
-          {/* Insights */}
           {weekInsights.length > 0 && (
             <div className="space-y-2">
               {weekInsights.map((ins, i) => (

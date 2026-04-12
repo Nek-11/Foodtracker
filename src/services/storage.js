@@ -1,3 +1,5 @@
+import { DEFAULT_MEAL_SLOTS } from '../utils/nutritionUtils.js'
+
 const KEYS = {
   MEALS:    'ft_meals',
   GOALS:    'ft_goals',
@@ -16,11 +18,12 @@ const DEFAULT_GOALS = {
 }
 
 const DEFAULT_SETTINGS = {
-  provider:     'claude',
-  claudeApiKey: '',
-  openaiApiKey: '',
-  resetHour:    2,    // meals logged before 2am count as "previous day"
-  theme:        'system',
+  provider:       'claude',
+  claudeApiKey:   '',
+  openaiApiKey:   '',
+  resetHour:      2,    // meals logged before 2am count as "previous day"
+  theme:          'system',
+  mealTimeSlots:  DEFAULT_MEAL_SLOTS,
 }
 
 // ─── Meals ───────────────────────────────────────────────────────────────────
@@ -88,7 +91,6 @@ export function clearPendingData(id) {
 
 // ─── Date helpers (configurable day-reset hour) ───────────────────────────────
 
-/** Return 'YYYY-MM-DD' in local time, with the day counting past midnight up to resetHour. */
 export function getDateKey(isoTimestamp, resetHour = 0) {
   const d = new Date(isoTimestamp)
   if (d.getHours() < resetHour) {
@@ -100,7 +102,6 @@ export function getDateKey(isoTimestamp, resetHour = 0) {
   return `${y}-${m}-${day}`
 }
 
-/** Local-time today key. */
 function todayKey() {
   const d = new Date()
   const y = d.getFullYear()
@@ -164,7 +165,13 @@ export function saveGoals(goals) {
 export function getSettings() {
   try {
     const stored = JSON.parse(localStorage.getItem(KEYS.SETTINGS) || 'null')
-    return stored ? { ...DEFAULT_SETTINGS, ...stored } : { ...DEFAULT_SETTINGS }
+    if (!stored) return { ...DEFAULT_SETTINGS }
+    // Deep-merge mealTimeSlots so missing keys fall back to defaults
+    return {
+      ...DEFAULT_SETTINGS,
+      ...stored,
+      mealTimeSlots: { ...DEFAULT_MEAL_SLOTS, ...stored.mealTimeSlots },
+    }
   } catch {
     return { ...DEFAULT_SETTINGS }
   }
@@ -177,8 +184,20 @@ export function saveSettings(settings) {
 // ─── Export / Import ─────────────────────────────────────────────────────────
 
 export function exportHistory() {
-  const meals = getMeals()
-  const payload = { version: 1, exportedAt: new Date().toISOString(), meals }
+  const meals    = getMeals()
+  const settings = getSettings()
+  const goals    = getGoals()
+
+  // Strip pending image blobs — they're large and not needed in an export
+  const exportMeals = meals.map(({ ...m }) => m)
+
+  const payload = {
+    version:    2,
+    exportedAt: new Date().toISOString(),
+    meals:      exportMeals,
+    settings,
+    goals,
+  }
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -196,9 +215,12 @@ export function importHistory(file) {
     reader.onload = e => {
       try {
         const data = JSON.parse(e.target.result)
+
+        // Support both v1 (meals array) and v2 ({ meals, settings, goals })
         const imported = Array.isArray(data) ? data : (data.meals || [])
         const existing = getMeals()
-        // existing wins on conflict (preserve local edits)
+
+        // Existing wins on conflict (preserve local edits)
         const byId = {}
         imported.forEach(m => { byId[m.id] = m })
         existing.forEach(m => { byId[m.id] = m })
@@ -206,6 +228,17 @@ export function importHistory(file) {
           .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
           .slice(0, 200)
         localStorage.setItem(KEYS.MEALS, JSON.stringify(merged))
+
+        // Restore settings and goals from v2 exports
+        if (data.settings) {
+          const current = getSettings()
+          saveSettings({ ...current, ...data.settings })
+        }
+        if (data.goals) {
+          const currentGoals = getGoals()
+          saveGoals({ ...currentGoals, ...data.goals })
+        }
+
         resolve(merged.length)
       } catch {
         reject(new Error('Invalid file — expected a Foodtracker JSON export.'))

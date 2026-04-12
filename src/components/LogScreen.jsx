@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { Camera, Mic, MicOff, FileText, X, Sparkles, Loader } from 'lucide-react'
 import { compressImage, makeThumbnail } from '../utils/imageUtils.js'
-import { analyzeMeal } from '../services/analyzer.js'
+import { analyzeMeal, NoApiKeyError } from '../services/analyzer.js'
 import { saveMeal, savePendingData, updateMeal, clearPendingData, getSettings } from '../services/storage.js'
 import {
   startListening, isSpeechSupported,
@@ -162,7 +162,8 @@ export default function LogScreen({ onMealSubmitted }) {
     } catch (err) {
       hapticError()
       updateMeal(mealId, { status: 'error', errorMessage: friendlyError(err) })
-      clearPendingData(mealId)
+      // Keep pending data for NoApiKeyError so user can retry after adding a key
+      if (!(err instanceof NoApiKeyError)) clearPendingData(mealId)
     }
   }
 

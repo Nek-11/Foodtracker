@@ -2,6 +2,11 @@
  * Convert raw API / network errors into friendly, actionable messages.
  */
 export function friendlyError(err) {
+  // No API key configured
+  if (err?.name === 'NoApiKeyError') {
+    return 'No API key set — go to Settings to add a Claude or OpenAI key, then tap Retry.'
+  }
+
   const msg = (err?.message || String(err)).toLowerCase()
 
   if (err instanceof TypeError || msg.includes('failed to fetch') || msg.includes('network')) {
@@ -11,7 +16,7 @@ export function friendlyError(err) {
     return 'Invalid API key — double-check the key you entered in Settings.'
   }
   if (msg.includes('403') || msg.includes('forbidden')) {
-    return 'API key doesn\'t have permission for this request — check your account plan.'
+    return "API key doesn't have permission for this request — check your account plan."
   }
   if (msg.includes('429') || msg.includes('rate limit') || msg.includes('quota')) {
     return 'Rate limit reached — wait a moment, then try again.'
@@ -29,6 +34,5 @@ export function friendlyError(err) {
     return 'The meal description is too long. Shorten your note and try again.'
   }
 
-  // Fallback: return the original message but clean it up
   return err?.message || 'Something went wrong — please try again.'
 }

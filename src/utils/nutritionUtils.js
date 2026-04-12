@@ -13,10 +13,6 @@ export function pct(value, goal) {
   return Math.min(200, Math.round((value / goal) * 100))
 }
 
-/**
- * Color class based on how close to goal.
- * green = 0–105%, amber = 106–120%, red = >120%
- */
 export function progressColor(value, goal) {
   const p = pct(value, goal)
   if (p <= 105) return 'text-emerald-400'
@@ -31,9 +27,6 @@ export function progressBgColor(value, goal) {
   return 'bg-red-500'
 }
 
-/**
- * Format a date string (YYYY-MM-DD) to a human-readable label.
- */
 export function formatDate(dateStr) {
   const today = new Date().toISOString().slice(0, 10)
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
@@ -43,16 +36,10 @@ export function formatDate(dateStr) {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
-/**
- * Format a timestamp to time string (e.g. "2:34 PM").
- */
 export function formatTime(isoString) {
   return new Date(isoString).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
 
-/**
- * Group meals array by date (YYYY-MM-DD), newest first.
- */
 export function groupByDate(meals) {
   const groups = {}
   meals.forEach(meal => {
@@ -60,44 +47,75 @@ export function groupByDate(meals) {
     if (!groups[date]) groups[date] = []
     groups[date].push(meal)
   })
-  // Sort dates descending
   return Object.entries(groups).sort(([a], [b]) => b.localeCompare(a))
 }
 
+// ── Meal category logic ────────────────────────────────────────────────────────
+
 /**
- * Determine meal category based on time-of-day and calorie threshold.
- *
- * Rules (user-defined):
- *  06:00–11:30  → Breakfast
- *  11:31–14:30  → Lunch (≥800 kcal) or Snack
- *  14:31–18:30  → Snack
- *  18:31–02:00  → Dinner (≥800 kcal) or Snack
- *  02:01–05:59  → Snack
+ * Minimum kcal for a timed meal to qualify as Lunch or Dinner.
+ * Below this it's a Snack even if the time matches.
+ * (Not configurable — keep it simple.)
  */
-export function getMealCategory(isoTimestamp, calories = 0) {
+export const MEAL_CALORIE_THRESHOLD = 400
+
+/** Default time windows used when none are configured in Settings. */
+export const DEFAULT_MEAL_SLOTS = {
+  breakfast: { start: '06:00', end: '10:00' },
+  lunch:     { start: '11:00', end: '14:00' },
+  dinner:    { start: '18:00', end: '22:00' },
+}
+
+function timeToMins(timeStr) {
+  const [h, m] = timeStr.split(':').map(Number)
+  return h * 60 + (m || 0)
+}
+
+function isInSlot(currentMin, start, end) {
+  const s = timeToMins(start)
+  const e = timeToMins(end)
+  if (s <= e) return currentMin >= s && currentMin <= e
+  // Wraps midnight
+  return currentMin >= s || currentMin <= e
+}
+
+/**
+ * Determine meal category from time-of-day, calories, and (optionally) configured time slots.
+ *
+ * Rules:
+ *  - Breakfast: any meal whose time falls within the breakfast window (calories irrelevant)
+ *  - Lunch:     time in lunch window AND calories ≥ MEAL_CALORIE_THRESHOLD
+ *  - Dinner:    time in dinner window AND calories ≥ MEAL_CALORIE_THRESHOLD
+ *  - Otherwise: Snack
+ *
+ * @param {string}  isoTimestamp
+ * @param {number}  calories
+ * @param {object}  timeSlots  - { breakfast, lunch, dinner } each with { start, end } "HH:MM"
+ */
+export function getMealCategory(isoTimestamp, calories = 0, timeSlots = DEFAULT_MEAL_SLOTS) {
   const d   = new Date(isoTimestamp)
   const min = d.getHours() * 60 + d.getMinutes()
+  const { breakfast, lunch, dinner } = { ...DEFAULT_MEAL_SLOTS, ...timeSlots }
 
-  if (min >= 360 && min <= 690)  return 'Breakfast'                           // 06:00–11:30
-  if (min >= 691 && min <= 870)  return calories >= 800 ? 'Lunch'   : 'Snack' // 11:31–14:30
-  if (min >= 871 && min <= 1110) return 'Snack'                               // 14:31–18:30
-  if (min >= 1111 || min <= 120) return calories >= 800 ? 'Dinner'  : 'Snack' // 18:31–02:00
-  return 'Snack'                                                               // 02:01–05:59
+  if (isInSlot(min, breakfast.start, breakfast.end)) return 'Breakfast'
+  if (isInSlot(min, lunch.start, lunch.end) && calories >= MEAL_CALORIE_THRESHOLD) return 'Lunch'
+  if (isInSlot(min, dinner.start, dinner.end) && calories >= MEAL_CALORIE_THRESHOLD) return 'Dinner'
+  return 'Snack'
 }
 
 /**
- * Get the display types for a meal.
- * Respects manually assigned mealTypes; falls back to auto-computed category.
+ * Return the display types for a meal.
+ * Respects manually-assigned mealTypes; falls back to auto-computed category.
  *
  * @param {object} meal
- * @returns {string[]} e.g. ['Dinner', 'Drink']
+ * @param {object} [timeSlots] - from settings.mealTimeSlots
  */
-export function getMealTypes(meal) {
+export function getMealTypes(meal, timeSlots = DEFAULT_MEAL_SLOTS) {
   if (meal.mealTypes && meal.mealTypes.length > 0) return meal.mealTypes
-  return [getMealCategory(meal.timestamp, meal.analysis?.totals?.calories || 0)]
+  return [getMealCategory(meal.timestamp, meal.analysis?.totals?.calories || 0, timeSlots)]
 }
 
-/** All selectable meal types (for filters and edit mode). */
+/** All selectable meal types. */
 export const ALL_MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Drink']
 
 export const CATEGORY_STYLES = {

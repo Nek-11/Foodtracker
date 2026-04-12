@@ -4,25 +4,19 @@ import * as openai from './openai.js'
 
 // Hardcoded models — edit here to change, no UI toggle needed
 const CLAUDE_MODEL  = 'claude-sonnet-4-6'
-const OPENAI_MODEL  = 'gpt-5-mini'
+const OPENAI_MODEL  = 'gpt-4o-mini'
 const REASONING_EFFORT = 'medium'
 
 // Claude extended thinking budget for "medium" effort
 const CLAUDE_BUDGET_TOKENS = 5000
 const CLAUDE_MAX_TOKENS    = 12000
 
-const MOCK_ANALYSIS = {
-  items: [
-    { name: 'Grilled chicken breast', estimatedWeightG: 150, calories: 248, proteinG: 46, carbsG: 0,  sugarG: 0, fatG: 5,  fiberG: 0, sodiumMg: 370 },
-    { name: 'Brown rice',             estimatedWeightG: 180, calories: 216, proteinG: 5,  carbsG: 45, sugarG: 1, fatG: 2,  fiberG: 4, sodiumMg: 10  },
-    { name: 'Steamed broccoli',       estimatedWeightG: 100, calories: 35,  proteinG: 3,  carbsG: 7,  sugarG: 2, fatG: 0,  fiberG: 3, sodiumMg: 30  },
-  ],
-  totals: { calories: 499, proteinG: 54, carbsG: 52, sugarG: 3, fatG: 7, fiberG: 7, sodiumMg: 410 },
-  confidence: 'low',
-  flagged: false,
-  questions: [],
-  mealSummary: 'Demo data — add an API key in Settings to analyze real meals',
-  _isMock: true,
+/** Thrown when no API key is configured — pending data is preserved so user can retry. */
+export class NoApiKeyError extends Error {
+  constructor() {
+    super('No API key configured')
+    this.name = 'NoApiKeyError'
+  }
 }
 
 function resolveParams(settings) {
@@ -35,7 +29,7 @@ export async function analyzeMeal({ foodImage, labelImage, note }) {
   const settings = getSettings()
   const { provider, apiKey } = resolveParams(settings)
 
-  if (!apiKey?.trim()) return { ...MOCK_ANALYSIS }
+  if (!apiKey?.trim()) throw new NoApiKeyError()
 
   const params = {
     apiKey: apiKey.trim(),
@@ -57,7 +51,7 @@ export async function reanalyzeMeal({ foodImage, labelImage, note, previousAnaly
   const settings = getSettings()
   const { provider, apiKey } = resolveParams(settings)
 
-  if (!apiKey?.trim()) return { ...MOCK_ANALYSIS }
+  if (!apiKey?.trim()) throw new NoApiKeyError()
 
   const params = {
     apiKey: apiKey.trim(),

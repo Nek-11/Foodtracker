@@ -11,7 +11,6 @@ import {
   fmt, formatDate, formatTime, MACRO_LABELS,
   getMealCategory, getMealTypes, CATEGORY_STYLES, ALL_MEAL_TYPES,
 } from '../utils/nutritionUtils.js'
-
 function getDateKeyLocal(isoTimestamp, resetHour) {
   const d = new Date(isoTimestamp)
   if (d.getHours() < resetHour) d.setDate(d.getDate() - 1)
@@ -48,7 +47,9 @@ export default function History({ refreshKey, onRefresh }) {
   const [showNutritionFilter,setShowNutritionFilter]= useState(false)
 
   const undoTimerRef = useRef(null)
-  const resetHour = getSettings().resetHour ?? 2
+  const settings   = getSettings()
+  const resetHour  = settings.resetHour ?? 2
+  const timeSlots  = settings.mealTimeSlots
 
   function refresh() { setMeals(getMeals()) }
   useEffect(() => { refresh() }, [refreshKey])
@@ -127,15 +128,16 @@ export default function History({ refreshKey, onRefresh }) {
     if (onRefresh) onRefresh()
   }
 
-  function handleSaveEdit(meal, { customName, mealTypes, userNotes, reanalyzeNote }) {
+  function handleSaveEdit(meal, { customName, mealTypes, note, shouldReanalyze }) {
     updateMeal(meal.id, {
-      customName:  customName  || null,
+      customName:  customName || null,
       mealTypes:   mealTypes.length > 0 ? mealTypes : null,
-      userNotes:   userNotes   || null,
+      userNotes:   note || null,
     })
     refresh()
-    if (reanalyzeNote.trim()) {
-      handleReanalyze(meal, reanalyzeNote.trim())
+    if (shouldReanalyze && note.trim()) {
+      // Pass the updated meal object so reanalyze reads the new userNotes
+      handleReanalyze({ ...meal, userNotes: note }, note.trim())
     }
     if (onRefresh) onRefresh()
   }
@@ -161,7 +163,7 @@ export default function History({ refreshKey, onRefresh }) {
     }
     // Type filter
     if (filterTypes.length > 0) {
-      const types = getMealTypes(m)
+      const types = getMealTypes(m, timeSlots)
       if (!filterTypes.some(t => types.includes(t))) return false
     }
     // Nutrition thresholds (only for analyzed meals)
@@ -314,6 +316,7 @@ export default function History({ refreshKey, onRefresh }) {
               <MealCard
                 key={meal.id}
                 meal={meal}
+                timeSlots={timeSlots}
                 isExpanded={expanded === meal.id}
                 onToggle={() => setExpanded(expanded === meal.id ? null : meal.id)}
                 onDelete={() => handleDelete(meal.id)}
@@ -345,18 +348,17 @@ export default function History({ refreshKey, onRefresh }) {
 
 // ── MealCard ──────────────────────────────────────────────────────────────────
 
-function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onReanalyze, onSaveEdit }) {
+function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, onReanalyze, onSaveEdit }) {
   const { analysis, thumbnail, timestamp, note, status, errorMessage, userNotes, _isMock } = meal
 
-  const [isEditing,    setIsEditing]    = useState(false)
-  const [editName,     setEditName]     = useState('')
-  const [editTypes,    setEditTypes]    = useState([])
-  const [editUserNote, setEditUserNote] = useState('')
-  const [editReNote,   setEditReNote]   = useState('')
+  const [isEditing, setIsEditing] = useState(false)
+  const [editName,  setEditName]  = useState('')
+  const [editTypes, setEditTypes] = useState([])
+  const [editNote,  setEditNote]  = useState('')
 
-  const totals     = analysis?.totals || {}
-  const flagged    = analysis?.flagged
-  const mealTypes  = getMealTypes(meal)
+  const totals    = analysis?.totals || {}
+  const flagged   = analysis?.flagged
+  const mealTypes = getMealTypes(meal, timeSlots)
 
   const isAnalyzing   = status === 'analyzing'
   const isInterrupted = status === 'interrupted'
@@ -366,8 +368,7 @@ function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onReanalyze, 
   function openEdit() {
     setEditName(meal.customName || analysis?.mealSummary || '')
     setEditTypes(meal.mealTypes || [])
-    setEditUserNote(userNotes || '')
-    setEditReNote('')
+    setEditNote(userNotes || '')
     setIsEditing(true)
   }
 
@@ -375,12 +376,12 @@ function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onReanalyze, 
     setIsEditing(false)
   }
 
-  function saveEdit() {
+  function saveEdit(reanalyze = false) {
     onSaveEdit({
-      customName:    editName.trim(),
-      mealTypes:     editTypes,
-      userNotes:     editUserNote.trim(),
-      reanalyzeNote: editReNote.trim(),
+      customName:      editName.trim(),
+      mealTypes:       editTypes,
+      note:            editNote.trim(),
+      shouldReanalyze: reanalyze,
     })
     setIsEditing(false)
   }
@@ -614,30 +615,22 @@ function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onReanalyze, 
                 </div>
               </div>
 
-              {/* Personal note */}
-              <div>
-                <label className="text-xs font-medium text-cream-600 dark:text-pine-400 mb-1 block">Personal note</label>
-                <textarea
-                  value={editUserNote}
-                  onChange={e => setEditUserNote(e.target.value)}
-                  placeholder="e.g. bigger portion than usual, extra sauce"
-                  rows={2}
-                  className="w-full rounded-xl px-3 py-2 text-sm bg-cream-100 dark:bg-pine-800 border border-cream-200 dark:border-pine-700 text-pine-900 dark:text-cream-100 placeholder-cream-400 dark:placeholder-pine-500 outline-none focus:ring-2 focus:ring-pine-400 resize-none"
-                />
-              </div>
-
-              {/* Reanalysis note */}
+              {/* Note (used for display + reanalysis context) */}
               <div>
                 <label className="text-xs font-medium text-cream-600 dark:text-pine-400 mb-1 block">
-                  Add context to reanalyze <span className="font-normal text-cream-400 dark:text-pine-500">(optional)</span>
+                  Notes / context for analysis
                 </label>
                 <textarea
-                  value={editReNote}
-                  onChange={e => setEditReNote(e.target.value)}
+                  value={editNote}
+                  onChange={e => setEditNote(e.target.value)}
                   placeholder="e.g. it was fried, used 2 tbsp oil, sauce was cream-based"
-                  rows={2}
-                  className="w-full rounded-xl px-3 py-2 text-sm bg-cream-100 dark:bg-pine-800 border border-pine-300 dark:border-pine-600 text-pine-900 dark:text-cream-100 placeholder-cream-400 dark:placeholder-pine-500 outline-none focus:ring-2 focus:ring-pine-400 resize-none"
+                  rows={3}
+                  autoFocus
+                  className="w-full rounded-xl px-3 py-2 text-sm bg-cream-100 dark:bg-pine-800 border border-cream-200 dark:border-pine-700 text-pine-900 dark:text-cream-100 placeholder-cream-400 dark:placeholder-pine-500 outline-none focus:ring-2 focus:ring-pine-400 resize-none"
                 />
+                <p className="text-[10px] text-cream-400 dark:text-pine-500 mt-1">
+                  Saved on the card and used as context whenever you reanalyze this meal.
+                </p>
               </div>
 
               {/* Edit actions */}
@@ -648,11 +641,17 @@ function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onReanalyze, 
                   <X size={12} /> Cancel
                 </button>
                 <button
-                  onClick={saveEdit}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold active:scale-95 transition-all bg-pine-500 dark:bg-pine-400 text-white dark:text-pine-950">
-                  <Check size={12} />
-                  {editReNote.trim() ? 'Save & Reanalyze' : 'Save'}
+                  onClick={() => saveEdit(false)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-cream-100 dark:bg-pine-800 text-pine-600 dark:text-pine-300 text-xs font-medium border border-cream-300 dark:border-pine-700 active:scale-95 transition-all">
+                  <Check size={12} /> Save
                 </button>
+                {editNote.trim() && (
+                  <button
+                    onClick={() => saveEdit(true)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold active:scale-95 transition-all bg-pine-500 dark:bg-pine-400 text-white dark:text-pine-950">
+                    <RefreshCw size={12} /> Save &amp; Reanalyze
+                  </button>
+                )}
               </div>
             </div>
           ) : (
