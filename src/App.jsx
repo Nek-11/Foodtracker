@@ -74,9 +74,9 @@ export default function App() {
   const themeLabel = theme === 'light' ? 'Light' : theme === 'dark' ? 'Dark' : 'Auto'
 
   const tabs = [
-    { id: 'log',       label: 'Log',     Icon: Camera },
-    { id: 'dashboard', label: 'Today',   Icon: BarChart2 },
-    { id: 'history',   label: 'History', Icon: ClipboardList },
+    { id: 'log',       label: 'Log',      Icon: Camera },
+    { id: 'dashboard', label: 'Stats',    Icon: BarChart2 },
+    { id: 'history',   label: 'History',  Icon: ClipboardList },
     { id: 'settings',  label: 'Settings', Icon: SettingsIcon },
   ]
 

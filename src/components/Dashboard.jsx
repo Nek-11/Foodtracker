@@ -4,7 +4,7 @@ import {
   Tooltip, ReferenceLine, BarChart, Bar, Cell
 } from 'recharts'
 import { getDailyTotals, getLast7DaysTotals, getGoals, getMealsByDate } from '../services/storage.js'
-import { fmt, pct, progressBgColor, formatDate, MACRO_LABELS, getMealCategory, CATEGORY_STYLES } from '../utils/nutritionUtils.js'
+import { fmt, pct, progressBgColor, formatDate, MACRO_LABELS, getMealTypes, CATEGORY_STYLES } from '../utils/nutritionUtils.js'
 
 export default function Dashboard({ refreshKey }) {
   const [totals,          setTotals]          = useState({})
@@ -25,13 +25,17 @@ export default function Dashboard({ refreshKey }) {
     const todayMeals = getMealsByDate(today).filter(m => m.analysis)
     const catMap = {}
     todayMeals.forEach(m => {
-      const cat = getMealCategory(m.timestamp, m.analysis.totals.calories || 0)
-      if (!catMap[cat]) catMap[cat] = { cal: 0, count: 0 }
-      catMap[cat].cal   += m.analysis.totals.calories || 0
-      catMap[cat].count += 1
+      // Use manually-set types if available, otherwise auto-compute
+      const types = getMealTypes(m)
+      types.forEach(cat => {
+        if (!catMap[cat]) catMap[cat] = { cal: 0, count: 0 }
+        // Divide calories evenly across multiple types to avoid double-counting
+        catMap[cat].cal   += (m.analysis.totals.calories || 0) / types.length
+        catMap[cat].count += 1 / types.length
+      })
     })
-    const order = ['Breakfast', 'Lunch', 'Snack', 'Dinner']
-    setMealsByCategory(order.filter(c => catMap[c]).map(c => ({ cat: c, ...catMap[c] })))
+    const order = ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Drink']
+    setMealsByCategory(order.filter(c => catMap[c]).map(c => ({ cat: c, cal: Math.round(catMap[c].cal), count: Math.round(catMap[c].count) || 1 })))
 
     const raw7 = getLast7DaysTotals()
     const week = raw7.map(({ date, totals: t }) => ({
@@ -85,7 +89,7 @@ export default function Dashboard({ refreshKey }) {
     <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-4">
 
       <div className="px-4 pb-2 pt-safe">
-        <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">Today</h1>
+        <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">Stats</h1>
         <p className="text-sm mt-0.5 text-cream-500 dark:text-pine-400">
           {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
         </p>

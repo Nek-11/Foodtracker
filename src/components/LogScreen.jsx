@@ -1,25 +1,36 @@
 import { useState, useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { Camera, Mic, MicOff, FileText, X, Sparkles } from 'lucide-react'
+import { Camera, Mic, MicOff, FileText, X, Sparkles, Loader } from 'lucide-react'
 import { compressImage, makeThumbnail } from '../utils/imageUtils.js'
 import { analyzeMeal } from '../services/analyzer.js'
-import { saveMeal, savePendingData, updateMeal, clearPendingData } from '../services/storage.js'
-import { startListening, isSpeechSupported } from '../services/speech.js'
+import { saveMeal, savePendingData, updateMeal, clearPendingData, getSettings } from '../services/storage.js'
+import {
+  startListening, isSpeechSupported,
+  startMediaRecording, transcribeWithWhisper, isMediaRecordingSupported,
+} from '../services/speech.js'
 import { hapticSuccess, hapticError, hapticLight } from '../utils/haptics.js'
 import { friendlyError } from '../utils/errorMessages.js'
 
 export default function LogScreen({ onMealSubmitted }) {
-  const [foodImage,   setFoodImage]   = useState(null)
-  const [labelImage,  setLabelImage]  = useState(null)
-  const [thumbnail,   setThumbnail]   = useState(null)
-  const [note,        setNote]        = useState('')
-  const [isRecording, setIsRecording] = useState(false)
-  const [error,       setError]       = useState(null)
-  const [isLoading,   setIsLoading]   = useState(false)
+  const [foodImage,      setFoodImage]      = useState(null)
+  const [labelImage,     setLabelImage]     = useState(null)
+  const [thumbnail,      setThumbnail]      = useState(null)
+  const [note,           setNote]           = useState('')
+  const [isRecording,    setIsRecording]    = useState(false)
+  const [isTranscribing, setIsTranscribing] = useState(false)
+  const [error,          setError]          = useState(null)
+  const [isLoading,      setIsLoading]      = useState(false)
 
-  const stopListeningRef = useRef(null)
-  const foodInputRef     = useRef(null)
-  const labelInputRef    = useRef(null)
+  const stopListeningRef  = useRef(null) // Web Speech stop fn
+  const whisperStopRef    = useRef(null) // Whisper async stop fn
+  const foodInputRef      = useRef(null)
+  const labelInputRef     = useRef(null)
+
+  // Determine recording mode
+  const settings    = getSettings()
+  const openaiKey   = settings.openaiApiKey
+  const useWhisper  = !!(openaiKey && openaiKey.startsWith('sk-') && isMediaRecordingSupported())
+  const canRecord   = useWhisper || isSpeechSupported()
 
   // ── Image picking ──────────────────────────────────────────────────────────
 
@@ -47,25 +58,66 @@ export default function LogScreen({ onMealSubmitted }) {
 
   // ── Voice recording ────────────────────────────────────────────────────────
 
-  function toggleRecording() {
+  async function toggleRecording() {
     hapticLight()
+
     if (isRecording) {
-      stopListeningRef.current?.(); stopListeningRef.current = null; setIsRecording(false)
+      // ── Stop ──
+      if (useWhisper) {
+        if (whisperStopRef.current) {
+          // stopAndGetBlob is an async fn — call it; it'll set isTranscribing
+          const stopFn = whisperStopRef.current
+          whisperStopRef.current = null
+          setIsRecording(false)
+          setIsTranscribing(true)
+          try {
+            const blob = await stopFn()
+            const text = await transcribeWithWhisper(blob, openaiKey)
+            if (text) setNote(prev => (prev ? prev + ' ' : '') + text)
+          } catch {
+            setError('Transcription failed. Try again or type your note manually.')
+          } finally {
+            setIsTranscribing(false)
+          }
+        }
+      } else {
+        stopListeningRef.current?.()
+        stopListeningRef.current = null
+        setIsRecording(false)
+      }
       return
     }
+
+    // ── Start ──
+    setError(null)
     setIsRecording(true)
-    let accumulated = note ? note + ' ' : ''
-    const stop = startListening(
-      (text, isFinal) => {
-        if (isFinal) { accumulated += text + ' '; setNote(accumulated.trim()) }
-        else          { setNote((accumulated + text).trim()) }
-      },
-      err => { setError(err); setIsRecording(false); stopListeningRef.current = null }
-    )
-    stopListeningRef.current = stop
-    setTimeout(() => {
-      if (stopListeningRef.current) { stopListeningRef.current(); stopListeningRef.current = null; setIsRecording(false) }
-    }, 60000)
+
+    if (useWhisper) {
+      try {
+        const stopAndGetBlob = await startMediaRecording(
+          err => { setError(err); setIsRecording(false) }
+        )
+        whisperStopRef.current = stopAndGetBlob
+      } catch {
+        setIsRecording(false)
+      }
+    } else {
+      let accumulated = note ? note + ' ' : ''
+      const stop = startListening(
+        (text, isFinal) => {
+          if (isFinal) { accumulated += text + ' '; setNote(accumulated.trim()) }
+          else          { setNote((accumulated + text).trim()) }
+        },
+        err => { setError(err); setIsRecording(false); stopListeningRef.current = null }
+      )
+      stopListeningRef.current = stop
+      // Auto-stop after 60 seconds
+      setTimeout(() => {
+        if (stopListeningRef.current) {
+          stopListeningRef.current(); stopListeningRef.current = null; setIsRecording(false)
+        }
+      }, 60000)
+    }
   }
 
   // ── Submit (background processing) ────────────────────────────────────────
@@ -91,17 +143,14 @@ export default function LogScreen({ onMealSubmitted }) {
       userNotes:    null,
     }
 
-    // Save to storage immediately and store image data for crash-retry
     saveMeal(pendingMeal)
     savePendingData(mealId, { foodImage, labelImage, note: note.trim() })
 
-    // Navigate to History right away — analysis continues in background
     hapticSuccess()
     clearFood()
     setIsLoading(false)
     onMealSubmitted()
 
-    // Background analysis
     try {
       const analysis = await analyzeMeal({
         foodImage:  foodImage  || null,
@@ -120,6 +169,17 @@ export default function LogScreen({ onMealSubmitted }) {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   const canSubmit = !isLoading && (!!foodImage || !!note.trim())
+
+  // Recording hint text
+  const recordingHint = isTranscribing
+    ? 'Transcribing…'
+    : isRecording
+      ? useWhisper
+        ? 'Recording… tap to stop and transcribe'
+        : 'Listening… tap to stop'
+      : foodImage
+        ? 'Add a voice or text note'
+        : 'Describe your meal'
 
   return (
     <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-8">
@@ -202,23 +262,28 @@ export default function LogScreen({ onMealSubmitted }) {
           <div className="flex items-center gap-3 mb-2">
             <button
               onClick={toggleRecording}
-              disabled={!isSpeechSupported()}
+              disabled={!canRecord || isTranscribing}
               aria-label={isRecording ? 'Stop recording' : 'Start voice note'}
               className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
                 isRecording
                   ? 'bg-red-500 animate-pulse'
-                  : 'bg-cream-200 dark:bg-pine-800 hover:bg-cream-300 dark:hover:bg-pine-700 active:scale-95'
+                  : isTranscribing
+                    ? 'bg-amber-500'
+                    : 'bg-cream-200 dark:bg-pine-800 hover:bg-cream-300 dark:hover:bg-pine-700 active:scale-95'
               } disabled:opacity-40`}
             >
-              {isRecording
-                ? <MicOff size={18} className="text-white" />
-                : <Mic    size={18} className="text-pine-600 dark:text-pine-300" />
+              {isTranscribing
+                ? <Loader size={18} className="text-white animate-spin" />
+                : isRecording
+                  ? <MicOff size={18} className="text-white" />
+                  : <Mic    size={18} className="text-pine-600 dark:text-pine-300" />
               }
             </button>
-            <p className="text-sm text-cream-500 dark:text-pine-400">
-              {isRecording ? 'Listening… tap to stop' : foodImage ? 'Add a voice or text note' : 'Describe your meal'}
-            </p>
+            <p className="text-sm text-cream-500 dark:text-pine-400">{recordingHint}</p>
           </div>
+          {useWhisper && !isRecording && !isTranscribing && (
+            <p className="text-[10px] text-pine-400 dark:text-pine-500 mb-2 pl-1">Using Whisper (OpenAI)</p>
+          )}
           <textarea
             value={note}
             onChange={e => setNote(e.target.value)}
