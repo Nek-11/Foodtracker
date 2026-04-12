@@ -4,7 +4,7 @@ import * as openai from './openai.js'
 
 // Hardcoded models — edit here to change, no UI toggle needed
 const CLAUDE_MODEL  = 'claude-sonnet-4-6'
-const OPENAI_MODEL  = 'o4-mini'
+const OPENAI_MODEL  = 'gpt-5-mini'
 const REASONING_EFFORT = 'medium'
 
 // Claude extended thinking budget for "medium" effort

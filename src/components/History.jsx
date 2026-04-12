@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { ClipboardList, ChevronDown, ChevronUp, Trash2, RefreshCw, Pencil, Check, X, AlertTriangle, Loader } from 'lucide-react'
 import { getMeals, deleteMeal, updateMeal, getPendingData, clearPendingData, getSettings } from '../services/storage.js'
-import { analyzeMeal } from '../services/analyzer.js'
+import { analyzeMeal, reanalyzeMeal } from '../services/analyzer.js'
 import { fmt, formatDate, formatTime, MACRO_LABELS } from '../utils/nutritionUtils.js'
 
 function getDateKeyLocal(isoTimestamp, resetHour) {
@@ -74,6 +74,32 @@ export default function History({ refreshKey, onRefresh }) {
     if (onRefresh) onRefresh()
   }
 
+  async function handleReanalyze(meal) {
+    const pending = getPendingData(meal.id)
+    // Build clarification note from original note + any user notes added since
+    const contextNote = [meal.userNotes, meal.note].filter(Boolean).join('\n')
+
+    updateMeal(meal.id, { status: 'analyzing', errorMessage: null })
+    refresh()
+
+    try {
+      const analysis = await reanalyzeMeal({
+        foodImage:        pending?.foodImage  || null,
+        labelImage:       pending?.labelImage || null,
+        note:             contextNote,
+        previousAnalysis: meal.analysis,
+      })
+      updateMeal(meal.id, { analysis, status: 'done' })
+    } catch (err) {
+      const msg = err instanceof TypeError
+        ? 'Network error — check your connection and API key.'
+        : err.message
+      updateMeal(meal.id, { status: 'error', errorMessage: msg })
+    }
+    refresh()
+    if (onRefresh) onRefresh()
+  }
+
   function handleNoteUpdate(id, note) {
     updateMeal(id, { userNotes: note })
     refresh()
@@ -119,6 +145,7 @@ export default function History({ refreshKey, onRefresh }) {
                 onToggle={() => setExpanded(expanded === meal.id ? null : meal.id)}
                 onDelete={() => handleDelete(meal.id)}
                 onRetry={() => handleRetry(meal)}
+                onReanalyze={() => handleReanalyze(meal)}
                 onNoteUpdate={note => handleNoteUpdate(meal.id, note)}
               />
             ))}
@@ -129,7 +156,7 @@ export default function History({ refreshKey, onRefresh }) {
   )
 }
 
-function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onNoteUpdate }) {
+function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onReanalyze, onNoteUpdate }) {
   const { analysis, thumbnail, timestamp, note, status, errorMessage, userNotes, _isMock } = meal
   const totals  = analysis?.totals || {}
   const flagged = analysis?.flagged
@@ -275,6 +302,14 @@ function MealCard({ meal, isExpanded, onToggle, onDelete, onRetry, onNoteUpdate 
 
           {/* User notes (editable) */}
           <UserNoteEditor value={userNotes || ''} onSave={onNoteUpdate} />
+
+          {/* Reanalyze */}
+          {analysis && (
+            <button onClick={onReanalyze}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm text-pine-600 dark:text-pine-300 font-medium bg-pine-50 dark:bg-pine-800/60 hover:bg-pine-100 dark:hover:bg-pine-800 border border-pine-200 dark:border-pine-700 transition-colors active:scale-[0.98]">
+              <RefreshCw size={14} /> Reanalyze
+            </button>
+          )}
 
           {/* Delete */}
           <button onClick={onDelete}

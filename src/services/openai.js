@@ -54,7 +54,8 @@ async function callOpenAI({ apiKey, model, reasoningEffort, messages }) {
     },
     body: JSON.stringify({
       model,
-      reasoning_effort: reasoningEffort,
+      // reasoning_effort is only supported by o-series models (o1, o3, o4-mini, etc.)
+      ...(model.startsWith('o') ? { reasoning_effort: reasoningEffort } : {}),
       response_format: { type: 'json_object' },
       messages,
     }),

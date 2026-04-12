@@ -7,7 +7,13 @@
   --sab: env(safe-area-inset-bottom, 0px);
 }
 
-html, body, #root {
+html {
+  height: 100%;
+  /* Use dynamic viewport height on iOS Safari to account for browser chrome */
+  height: 100dvh;
+}
+
+body, #root {
   height: 100%;
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
