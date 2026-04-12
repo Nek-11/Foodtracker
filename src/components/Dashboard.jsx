@@ -166,7 +166,7 @@ export default function Dashboard({ refreshKey }) {
             <XAxis dataKey="day" tick={{ fill: '#a09278', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#a09278', fontSize: 10 }} axisLine={false} tickLine={false} />
             <Tooltip
-              contentStyle={{ background: '#162d20', border: '1px solid #15472d', borderRadius: 12, fontSize: 12 }}
+              contentStyle={{ background: '#1e2521', border: '1px solid #272f2b', borderRadius: 12, fontSize: 12 }}
               labelStyle={{ color: '#63b587' }}
               itemStyle={{ color: '#3d9b6a' }}
             />
@@ -191,7 +191,7 @@ export default function Dashboard({ refreshKey }) {
             <XAxis dataKey="day" tick={{ fill: '#a09278', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#a09278', fontSize: 10 }} axisLine={false} tickLine={false} />
             <Tooltip
-              contentStyle={{ background: '#162d20', border: '1px solid #15472d', borderRadius: 12, fontSize: 12 }}
+              contentStyle={{ background: '#1e2521', border: '1px solid #272f2b', borderRadius: 12, fontSize: 12 }}
               labelStyle={{ color: '#63b587' }}
               itemStyle={{ color: '#60a5fa' }}
             />

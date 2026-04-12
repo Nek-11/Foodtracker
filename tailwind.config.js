@@ -14,9 +14,9 @@ export default {
           500: '#2a7d52',
           600: '#1e623f',
           700: '#15472d',
-          800: '#1a3828',
-          900: '#162d20',
-          950: '#0f2018',
+          800: '#272f2b',  /* dark neutral charcoal, ~8% green tint */
+          900: '#1e2521',  /* card bg — near-black, barely green       */
+          950: '#111714',  /* main bg — essentially black + green trace */
         },
         cream: {
           50:  '#fdfcf9',
