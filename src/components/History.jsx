@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { ClipboardList, ChevronDown, ChevronUp, Trash2, RefreshCw, Pencil, Check, X, AlertTriangle, Loader, Search } from 'lucide-react'
 import { hapticLight, hapticSuccess, hapticError, hapticWarning } from '../utils/haptics.js'
 import { friendlyError } from '../utils/errorMessages.js'
-import { getMeals, deleteMeal, updateMeal, getPendingData, clearPendingData, getSettings } from '../services/storage.js'
+import { getMeals, deleteMeal, saveMeal, updateMeal, getPendingData, clearPendingData, getSettings } from '../services/storage.js'
 import { analyzeMeal, reanalyzeMeal } from '../services/analyzer.js'
 import { fmt, formatDate, formatTime, MACRO_LABELS, getMealCategory, CATEGORY_STYLES } from '../utils/nutritionUtils.js'
 
@@ -29,6 +29,8 @@ export default function History({ refreshKey, onRefresh }) {
   const [meals,       setMeals]       = useState([])
   const [expanded,    setExpanded]    = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [undoMeal,    setUndoMeal]    = useState(null)
+  const undoTimerRef = useRef(null)
   const resetHour = getSettings().resetHour ?? 2
 
   function refresh() {
@@ -69,9 +71,26 @@ export default function History({ refreshKey, onRefresh }) {
   }
 
   function handleDelete(id) {
+    const meal = meals.find(m => m.id === id)
+    if (!meal) return
+    hapticLight()
     deleteMeal(id)
     refresh()
     if (expanded === id) setExpanded(null)
+    if (onRefresh) onRefresh()
+
+    // Show undo toast — re-save the meal if user taps Undo within 4 s
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
+    setUndoMeal(meal)
+    undoTimerRef.current = setTimeout(() => setUndoMeal(null), 4000)
+  }
+
+  function handleUndoDelete() {
+    if (!undoMeal) return
+    clearTimeout(undoTimerRef.current)
+    saveMeal(undoMeal)
+    setUndoMeal(null)
+    refresh()
     if (onRefresh) onRefresh()
   }
 
@@ -134,7 +153,7 @@ export default function History({ refreshKey, onRefresh }) {
   const groups = groupByDate(filteredMeals, resetHour)
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-8">
+    <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-8 relative">
       <div className="px-4 pb-2 pt-safe">
         <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">History</h1>
         <p className="text-sm mt-0.5 text-cream-500 dark:text-pine-400">
@@ -183,6 +202,20 @@ export default function History({ refreshKey, onRefresh }) {
           </div>
         </section>
       ))}
+
+      {/* Undo delete toast */}
+      {undoMeal && (
+        <div className="sticky bottom-4 left-0 right-0 flex justify-center px-4 animate-fade-in pointer-events-none">
+          <div className="pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-2xl bg-pine-800 dark:bg-pine-700 text-cream-100 text-sm shadow-xl">
+            <span className="opacity-80">Meal deleted</span>
+            <button
+              onClick={handleUndoDelete}
+              className="font-semibold text-pine-300 dark:text-pine-200 hover:text-white transition-colors">
+              Undo
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
