@@ -315,7 +315,7 @@ export default function Settings({ onRefresh }) {
       <section className={card}>
         <span className={label}>Recurring Habits</span>
         <p className="text-xs text-cream-500 dark:text-pine-400 mb-3">
-          Habits are only applied when relevant to the specific meal being logged — not blindly to everything.
+          Things you regularly add to your meals or drinks.
         </p>
         <div className="space-y-2">
           {habits.map((habit, i) => (
