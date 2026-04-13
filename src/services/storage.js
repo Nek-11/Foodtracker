@@ -191,11 +191,15 @@ export function exportHistory() {
   // Strip pending image blobs — they're large and not needed in an export
   const exportMeals = meals.map(({ ...m }) => m)
 
+  const settingsForExport = { ...settings }
+  delete settingsForExport.claudeApiKey
+  delete settingsForExport.openaiApiKey
+
   const payload = {
     version:    2,
     exportedAt: new Date().toISOString(),
     meals:      exportMeals,
-    settings,
+    settings:   settingsForExport,
     goals,
   }
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
