@@ -28,7 +28,7 @@ function resolveParams(settings) {
 function appendHabits(note, settings) {
   const habits = (settings.habits || []).filter(h => h.trim())
   if (habits.length === 0) return note
-  const habitsContext = `\n\nRecurring habits (always apply these to my meals):\n${habits.map(h => `- ${h}`).join('\n')}`
+  const habitsContext = `\n\nUser's recurring habits (ONLY apply a habit if it is clearly relevant to this specific meal — ignore habits that don't match what's being logged):\n${habits.map(h => `- ${h}`).join('\n')}`
   return (note || '') + habitsContext
 }
 
