@@ -7,6 +7,12 @@ const KEYS = {
   PENDING:  'ft_pending',   // { [mealId]: { foodImage, labelImage, note } }
 }
 
+// FIFO rolling window: when a new meal is added at this limit, the oldest is dropped.
+const MEAL_CAP = 800
+
+// Number of days to keep thumbnails (today + yesterday = 2)
+const THUMBNAIL_DAYS = 2
+
 const DEFAULT_GOALS = {
   calories: 2600,
   proteinG: 160,
@@ -26,6 +32,84 @@ const DEFAULT_SETTINGS = {
   mealTimeSlots:  DEFAULT_MEAL_SLOTS,
 }
 
+// ─── Thumbnail cleanup ────────────────────────────────────────────────────────
+
+/**
+ * Returns the date key (YYYY-MM-DD) for a given date offset from today,
+ * respecting the resetHour boundary.
+ */
+function dateKeyForOffset(offsetDays, resetHour) {
+  const d = new Date()
+  // If we're before the reset hour, "today" is still the previous calendar day
+  if (d.getHours() < resetHour) d.setDate(d.getDate() - 1)
+  d.setDate(d.getDate() - offsetDays)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/**
+ * Strip thumbnails from meals older than THUMBNAIL_DAYS days.
+ * Runs on app start to keep localStorage lean (allows ~960+ meals on iOS).
+ */
+export function cleanupOldThumbnails(resetHour = 2) {
+  try {
+    const meals = getMeals()
+    // Build set of "recent" date keys (today + yesterday)
+    const recentKeys = new Set()
+    for (let i = 0; i < THUMBNAIL_DAYS; i++) {
+      recentKeys.add(dateKeyForOffset(i, resetHour))
+    }
+
+    let changed = false
+    const updated = meals.map(meal => {
+      if (!meal.thumbnail) return meal
+      const mealKey = getDateKey(meal.timestamp, resetHour)
+      if (!recentKeys.has(mealKey)) {
+        changed = true
+        return { ...meal, thumbnail: null }
+      }
+      return meal
+    })
+
+    if (changed) {
+      localStorage.setItem(KEYS.MEALS, JSON.stringify(updated))
+    }
+  } catch {
+    // Silent — cleanup is best-effort
+  }
+}
+
+// ─── Internal write helper with QuotaExceededError recovery ──────────────────
+
+function writeMeals(meals) {
+  try {
+    localStorage.setItem(KEYS.MEALS, JSON.stringify(meals))
+  } catch (err) {
+    if (err.name === 'QuotaExceededError' || err.code === 22) {
+      // Strip thumbnails from old meals and retry once
+      const settings = getSettings()
+      const resetHour = settings.resetHour ?? 2
+      cleanupOldThumbnails(resetHour)
+      // Also drop thumbnails from the batch we're about to write
+      const stripped = meals.map(m => {
+        const mealKey = getDateKey(m.timestamp, resetHour)
+        const recentKeys = new Set()
+        for (let i = 0; i < THUMBNAIL_DAYS; i++) {
+          recentKeys.add(dateKeyForOffset(i, resetHour))
+        }
+        return recentKeys.has(mealKey) ? m : { ...m, thumbnail: null }
+      })
+      try {
+        localStorage.setItem(KEYS.MEALS, JSON.stringify(stripped))
+      } catch {
+        // Still failing — silently skip to avoid crashing the app
+      }
+    }
+  }
+}
+
 // ─── Meals ───────────────────────────────────────────────────────────────────
 
 export function getMeals() {
@@ -40,11 +124,16 @@ export function saveMeal(meal) {
   const meals = getMeals()
   const idx = meals.findIndex(m => m.id === meal.id)
   if (idx >= 0) {
+    // Update existing meal — no count change
     meals[idx] = meal
   } else {
+    // New meal — enforce FIFO: drop oldest if at cap
+    if (meals.length >= MEAL_CAP) {
+      meals.splice(MEAL_CAP - 1) // remove oldest meal(s) from the end
+    }
     meals.unshift(meal)
   }
-  localStorage.setItem(KEYS.MEALS, JSON.stringify(meals.slice(0, 200)))
+  writeMeals(meals)
   return meal
 }
 
@@ -53,13 +142,13 @@ export function updateMeal(id, updates) {
   const idx = meals.findIndex(m => m.id === id)
   if (idx >= 0) {
     meals[idx] = { ...meals[idx], ...updates }
-    localStorage.setItem(KEYS.MEALS, JSON.stringify(meals))
+    writeMeals(meals)
   }
 }
 
 export function deleteMeal(id) {
   const meals = getMeals().filter(m => m.id !== id)
-  localStorage.setItem(KEYS.MEALS, JSON.stringify(meals))
+  writeMeals(meals)
   clearPendingData(id)
 }
 
@@ -230,8 +319,8 @@ export function importHistory(file) {
         existing.forEach(m => { byId[m.id] = m })
         const merged = Object.values(byId)
           .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
-          .slice(0, 200)
-        localStorage.setItem(KEYS.MEALS, JSON.stringify(merged))
+          .slice(0, MEAL_CAP)
+        writeMeals(merged)
 
         // Restore settings and goals from v2 exports
         if (data.settings) {

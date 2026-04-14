@@ -108,7 +108,8 @@ export default function History({ refreshKey, onRefresh }) {
 
   async function handleReanalyze(meal, overrideNote = null) {
     const pending = getPendingData(meal.id)
-    const contextNote = overrideNote ?? [meal.userNotes, meal.note].filter(Boolean).join('\n')
+    // Always include all available context: new override + saved notes + original log note
+    const contextNote = [overrideNote, meal.userNotes, meal.note].filter(Boolean).join('\n')
     hapticLight()
     updateMeal(meal.id, { status: 'analyzing', errorMessage: null })
     refresh()
@@ -120,7 +121,8 @@ export default function History({ refreshKey, onRefresh }) {
         previousAnalysis: meal.analysis,
       })
       hapticSuccess()
-      updateMeal(meal.id, { analysis, status: 'done' })
+      // Force flagged=false after explicit re-analysis — user has acknowledged the uncertainty
+      updateMeal(meal.id, { analysis: { ...analysis, flagged: false }, status: 'done' })
     } catch (err) {
       hapticError()
       updateMeal(meal.id, { status: 'error', errorMessage: friendlyError(err) })

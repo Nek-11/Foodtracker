@@ -75,11 +75,15 @@ describe('Meals CRUD', () => {
     expect(meals[0].id).toBe('b')
   })
 
-  it('caps at 200 meals', () => {
-    for (let i = 0; i < 210; i++) {
+  it('caps at 800 meals (FIFO — oldest dropped on new entry)', () => {
+    for (let i = 0; i < 810; i++) {
       saveMeal(makeMeal({ id: `m-${i}` }))
     }
-    expect(getMeals().length).toBe(200)
+    const meals = getMeals()
+    expect(meals.length).toBe(800)
+    // Newest meal is first, oldest (m-0) should have been evicted
+    expect(meals[0].id).toBe('m-809')
+    expect(meals.find(m => m.id === 'm-0')).toBeUndefined()
   })
 })
 

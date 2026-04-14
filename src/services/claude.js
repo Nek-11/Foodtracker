@@ -53,7 +53,8 @@ Schema:
 Rules:
 - Always estimate — never refuse. Approximations are expected and acceptable.
 - Use visual cues (plate size, food portions, relative sizes) to estimate weights.
-- If a nutrition label image is provided, use its values per 100g and only estimate the weight.
+- If a nutrition label image is provided, use its per-100g or per-serving values as ground truth — do not override label values with estimates.
+- If a scanned product's nutrition data is provided in the context text, treat those values as ground truth. Estimate the consumed portion size from the image, or use the stated serving size if no image is available.
 - Round all numbers to the nearest integer.
 - Sodium in mg, everything else in grams or kcal.
 
@@ -74,9 +75,24 @@ Question rules (VERY IMPORTANT):
 - For simple drinks (coffee, tea, juice, smoothie), only flag if significant additives are unknown.
 - Use "notes" for tips that don't require a tap-answer, e.g. "Specify the full recipe for more precise calorie estimates."`
 
+export const MERGE_SYSTEM_PROMPT = `You are merging multiple food nutrition analysis results into one. Return valid JSON ONLY — no markdown, no explanation.
+
+Rules:
+- Identify the same food items across runs semantically (e.g. "steak", "entrecôte", "meat" are the same item)
+- For matched items: average each numeric field across the runs that identified that item, then round to the nearest integer
+- For items found in only one run: include them with their values as-is (still round each field to integer)
+- Use the canonical name from whichever run had the most detail for that item
+- For "questions": use the set from whichever run has the most questions; if tied use run 1's questions
+- For "flagged": match the chosen questions-run's flagged value
+- For "confidence": use the most conservative (lowest) value across all runs (low < medium < high)
+- For "mealSummary", "notes": use run 1's values
+- "totals": recompute by summing all merged items' macros (round each to integer)
+
+Return the same JSON schema: { items, totals, confidence, flagged, questions, notes, mealSummary }`
+
 function buildContent(foodImage, labelImage, note) {
-  if (!foodImage && !note?.trim()) {
-    throw new Error('Provide at least a food image or a meal description.')
+  if (!foodImage && !labelImage && !note?.trim()) {
+    throw new Error('Provide at least a food image, a nutrition label, or a meal description.')
   }
 
   const content = []
@@ -95,7 +111,7 @@ function buildContent(foodImage, labelImage, note) {
   if (labelImage) {
     content.push({
       type: 'text',
-      text: 'The following image is the nutrition label for this packaged food. Use the per-serving or per-100g values from this label and only estimate the weight/portion size from the food image.',
+      text: 'The following image is the nutrition label for this food. Use the per-serving or per-100g values from this label as ground truth — they override any visual estimates.',
     })
     content.push({
       type: 'image',
@@ -108,10 +124,18 @@ function buildContent(foodImage, labelImage, note) {
   }
 
   let userText
-  if (foodImage && !note) {
-    userText = 'Please analyze the food in this image and return the nutrition breakdown as JSON.'
+  if (foodImage && labelImage && note) {
+    userText = `Please analyze the food. The label above has the exact nutrition values — use them. Additional context: "${note}". Return the nutrition breakdown as JSON.`
+  } else if (foodImage && labelImage) {
+    userText = 'Please analyze the food using the nutrition label values above. Estimate the portion size from the food image. Return the nutrition breakdown as JSON.'
   } else if (foodImage && note) {
     userText = `Please analyze the food in this image. Additional context: "${note}". Return the nutrition breakdown as JSON.`
+  } else if (foodImage) {
+    userText = 'Please analyze the food in this image and return the nutrition breakdown as JSON.'
+  } else if (labelImage && note) {
+    userText = `I have a nutrition label but no food photo. Additional context: "${note}". Use the label values and estimate a typical portion size. Return the nutrition breakdown as JSON.`
+  } else if (labelImage) {
+    userText = 'I have a nutrition label but no food photo. Use the label values and estimate a typical serving size. Return the nutrition breakdown as JSON.'
   } else {
     userText = `I have no photo. Here is my meal description: "${note}". Based on typical portion sizes, return a nutrition breakdown as JSON.`
   }
@@ -120,10 +144,21 @@ function buildContent(foodImage, labelImage, note) {
   return content
 }
 
-async function callClaude({ apiKey, model, reasoningEffort, budgetTokens, maxTokens, content }) {
+async function callClaude({ apiKey, model, reasoningEffort, budgetTokens, maxTokens, content, useThinking = true }) {
   const cfg = THINKING_CONFIG[reasoningEffort] ?? THINKING_CONFIG.medium
   const budget_tokens = budgetTokens ?? cfg.budget_tokens
   const max_tokens    = maxTokens    ?? cfg.max_tokens
+
+  const body = {
+    model,
+    max_tokens,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content }],
+  }
+
+  if (useThinking) {
+    body.thinking = { type: 'enabled', budget_tokens }
+  }
 
   const response = await fetch(CLAUDE_API_URL, {
     method: 'POST',
@@ -133,13 +168,7 @@ async function callClaude({ apiKey, model, reasoningEffort, budgetTokens, maxTok
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-calls': 'true',
     },
-    body: JSON.stringify({
-      model,
-      max_tokens,
-      thinking: { type: 'enabled', budget_tokens },
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content }],
-    }),
+    body: JSON.stringify(body),
   })
 
   if (!response.ok) {
@@ -167,12 +196,70 @@ export async function analyzeMeal({ apiKey, model, reasoningEffort, budgetTokens
 }
 
 export async function reanalyzeMeal({ apiKey, model, reasoningEffort, budgetTokens, maxTokens, foodImage, labelImage, note, previousAnalysis }) {
-  const clarificationNote = `Previously estimated: ${previousAnalysis.mealSummary}
-Flagged questions were: ${previousAnalysis.questions.join('; ')}
-User clarification: "${note}"
+  const prevItems = (previousAnalysis.items || [])
+    .map(i => `  - ${i.name}: ${i.calories} kcal, ${i.proteinG}g protein, ${i.carbsG}g carbs, ${i.fatG}g fat`)
+    .join('\n')
 
-Please re-analyze with this additional information and return updated JSON.`
+  const prevQuestions = (previousAnalysis.questions || [])
+    .map(q => (typeof q === 'string' ? q : q.text))
+    .filter(Boolean)
+    .join('; ')
+
+  const clarificationNote = `Re-analysis request.
+
+Previous estimate: ${previousAnalysis.mealSummary || '(unknown)'}
+Previously identified items:
+${prevItems || '  (none recorded)'}
+${prevQuestions ? `\nPrevious flagged questions: ${prevQuestions}` : ''}
+
+User's additional context / corrections: "${note}"
+
+Please re-analyze incorporating this new information and return updated JSON.`
 
   const content = buildContent(foodImage, labelImage, clarificationNote)
   return callClaude({ apiKey, model, reasoningEffort, budgetTokens, maxTokens, content })
+}
+
+export async function mergeAnalyses({ apiKey, model, results }) {
+  const numbered = results
+    .map((r, i) => `Run ${i + 1}: ${JSON.stringify(r)}`)
+    .join('\n\n')
+
+  const content = [{
+    type: 'text',
+    text: `Here are ${results.length} food analysis results to merge:\n\n${numbered}\n\nMerge these into one result following the rules in your instructions.`,
+  }]
+
+  const response = await fetch(CLAUDE_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-calls': 'true',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4000,
+      system: MERGE_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content }],
+    }),
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err?.error?.message || `Claude merge error ${response.status}`)
+  }
+
+  const data = await response.json()
+  const textBlock = data.content?.find(b => b.type === 'text')
+  const raw = textBlock?.text?.trim() ?? ''
+  const cleaned = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
+
+  try {
+    return JSON.parse(cleaned)
+  } catch {
+    // Merge failed — fall back to first result
+    return results[0]
+  }
 }

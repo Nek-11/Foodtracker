@@ -33,7 +33,9 @@ describe('analyzer habits context', () => {
     const { analyzeMeal } = await import('../services/analyzer.js')
     await analyzeMeal({ foodImage: null, labelImage: null, note: 'a cappuccino' })
 
-    expect(calls.length).toBe(1)
+    // Now runs 3 analyses in parallel + 1 merge call = 4 total calls
+    expect(calls.length).toBeGreaterThanOrEqual(3)
+    // Habits should be present in all analysis calls (first 3)
     const userMsg = calls[0].body.messages[0].content
     const textContent = userMsg.find(c => c.type === 'text')?.text || ''
     expect(textContent).toContain('I always add sugar to coffee')

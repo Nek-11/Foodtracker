@@ -4,7 +4,7 @@ import LogScreen   from './components/LogScreen.jsx'
 import Dashboard   from './components/Dashboard.jsx'
 import History     from './components/History.jsx'
 import Settings    from './components/Settings.jsx'
-import { getSettings, saveSettings, getMeals, updateMeal } from './services/storage.js'
+import { getSettings, saveSettings, getMeals, updateMeal, cleanupOldThumbnails } from './services/storage.js'
 
 function getEffectiveDark(theme) {
   if (theme === 'dark') return true
@@ -47,7 +47,11 @@ export default function App() {
   }, [])
 
   // Fix any meals stuck in 'analyzing' from a previous session
+  // Also strip thumbnails from old meals to stay within localStorage limits
   useEffect(() => {
+    const settings = getSettings()
+    const resetHour = settings.resetHour ?? 2
+    cleanupOldThumbnails(resetHour)
     getMeals().forEach(m => {
       if (m.status === 'analyzing') {
         updateMeal(m.id, { status: 'interrupted', errorMessage: 'Analysis was interrupted. Open the meal to retry.' })
