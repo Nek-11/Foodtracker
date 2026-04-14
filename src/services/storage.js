@@ -7,7 +7,8 @@ const KEYS = {
   PENDING:  'ft_pending',   // { [mealId]: { foodImage, labelImage, note } }
 }
 
-const MEAL_CAP = 1000  // increased from 200 (thumbnails only kept for recent days)
+// FIFO rolling window: when a new meal is added at this limit, the oldest is dropped.
+const MEAL_CAP = 800
 
 // Number of days to keep thumbnails (today + yesterday = 2)
 const THUMBNAIL_DAYS = 2
@@ -123,11 +124,16 @@ export function saveMeal(meal) {
   const meals = getMeals()
   const idx = meals.findIndex(m => m.id === meal.id)
   if (idx >= 0) {
+    // Update existing meal — no count change
     meals[idx] = meal
   } else {
+    // New meal — enforce FIFO: drop oldest if at cap
+    if (meals.length >= MEAL_CAP) {
+      meals.splice(MEAL_CAP - 1) // remove oldest meal(s) from the end
+    }
     meals.unshift(meal)
   }
-  writeMeals(meals.slice(0, MEAL_CAP))
+  writeMeals(meals)
   return meal
 }
 
