@@ -32,6 +32,40 @@ function appendHabits(note, settings) {
   return (note || '') + habitsContext
 }
 
+/**
+ * Run a single analysis call (Claude or OpenAI).
+ */
+async function runSingleAnalysis(provider, params) {
+  return provider === 'openai'
+    ? openai.analyzeMeal(params)
+    : claude.analyzeMeal(params)
+}
+
+/**
+ * Run a single re-analysis call (Claude or OpenAI).
+ */
+async function runSingleReanalysis(provider, params) {
+  return provider === 'openai'
+    ? openai.reanalyzeMeal(params)
+    : claude.reanalyzeMeal(params)
+}
+
+/**
+ * Merge multiple analysis results using a lightweight LLM call.
+ * Falls back to results[0] if the merge call itself fails.
+ */
+async function mergeResults(provider, apiKey, model, results) {
+  if (results.length === 1) return results[0]
+  try {
+    return provider === 'openai'
+      ? await openai.mergeAnalyses({ apiKey, model, results })
+      : await claude.mergeAnalyses({ apiKey, model, results })
+  } catch {
+    // Merge failed — return first result as safe fallback
+    return results[0]
+  }
+}
+
 export async function analyzeMeal({ foodImage, labelImage, note }) {
   const settings = getSettings()
   const { provider, apiKey } = resolveParams(settings)
@@ -49,9 +83,23 @@ export async function analyzeMeal({ foodImage, labelImage, note }) {
     note: appendHabits(note, settings),
   }
 
-  return provider === 'openai'
-    ? openai.analyzeMeal(params)
-    : claude.analyzeMeal(params)
+  // Run 3 analyses in parallel to reduce randomness
+  const settled = await Promise.allSettled([
+    runSingleAnalysis(provider, params),
+    runSingleAnalysis(provider, params),
+    runSingleAnalysis(provider, params),
+  ])
+
+  const successful = settled
+    .filter(r => r.status === 'fulfilled')
+    .map(r => r.value)
+
+  if (successful.length === 0) {
+    // All failed — throw the first error
+    throw settled[0].reason
+  }
+
+  return mergeResults(provider, params.apiKey, params.model, successful)
 }
 
 export async function reanalyzeMeal({ foodImage, labelImage, note, previousAnalysis }) {
@@ -72,7 +120,20 @@ export async function reanalyzeMeal({ foodImage, labelImage, note, previousAnaly
     previousAnalysis,
   }
 
-  return provider === 'openai'
-    ? openai.reanalyzeMeal(params)
-    : claude.reanalyzeMeal(params)
+  // Run 3 re-analyses in parallel
+  const settled = await Promise.allSettled([
+    runSingleReanalysis(provider, params),
+    runSingleReanalysis(provider, params),
+    runSingleReanalysis(provider, params),
+  ])
+
+  const successful = settled
+    .filter(r => r.status === 'fulfilled')
+    .map(r => r.value)
+
+  if (successful.length === 0) {
+    throw settled[0].reason
+  }
+
+  return mergeResults(provider, params.apiKey, params.model, successful)
 }

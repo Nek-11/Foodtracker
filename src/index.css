@@ -15,6 +15,7 @@ html {
 
 body, #root {
   height: 100%;
+  overflow: hidden;
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
 }
@@ -73,6 +74,21 @@ html:not(.dark) .shimmer {
   );
   background-size: 300% 100%;
 }
+
+/* Barcode scanner line animation */
+@keyframes scan-line {
+  0%   { top: 4px; }
+  50%  { top: calc(100% - 4px); }
+  100% { top: 4px; }
+}
+.animate-scan-line {
+  animation: scan-line 1.8s ease-in-out infinite;
+  position: absolute;
+}
+
+/* No scrollbar utility */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* Range input thumb */
 input[type="range"] {

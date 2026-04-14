@@ -75,11 +75,11 @@ describe('Meals CRUD', () => {
     expect(meals[0].id).toBe('b')
   })
 
-  it('caps at 200 meals', () => {
-    for (let i = 0; i < 210; i++) {
+  it('caps at 1000 meals', () => {
+    for (let i = 0; i < 1010; i++) {
       saveMeal(makeMeal({ id: `m-${i}` }))
     }
-    expect(getMeals().length).toBe(200)
+    expect(getMeals().length).toBe(1000)
   })
 })
 
