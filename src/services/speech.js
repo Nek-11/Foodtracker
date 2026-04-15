@@ -121,6 +121,9 @@ export async function startMediaRecording(onError) {
     if (e.data.size > 0) chunks.push(e.data)
   }
 
+  // Brief warm-up: give the audio pipeline ~300 ms to stabilize before
+  // starting capture so the very beginning of speech isn't clipped.
+  await new Promise(r => setTimeout(r, 300))
   recorder.start()
 
   // Returns a Promise that resolves with the recorded Blob once recording stops

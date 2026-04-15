@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import {
   ClipboardList, ChevronDown, ChevronUp, Trash2, RefreshCw,
   Pencil, Check, X, AlertTriangle, Loader, Search, SlidersHorizontal,
+  Mic, MicOff, ChevronLeft,
 } from 'lucide-react'
 import { hapticLight, hapticSuccess, hapticError } from '../utils/haptics.js'
 import { friendlyError } from '../utils/errorMessages.js'
@@ -11,6 +12,10 @@ import {
   fmt, formatDate, formatTime, MACRO_LABELS,
   getMealCategory, getMealTypes, CATEGORY_STYLES, ALL_MEAL_TYPES,
 } from '../utils/nutritionUtils.js'
+import {
+  startListening, isSpeechSupported,
+  startMediaRecording, transcribeWithWhisper, isMediaRecordingSupported,
+} from '../services/speech.js'
 import PullToRefresh from './PullToRefresh.jsx'
 function getDateKeyLocal(isoTimestamp, resetHour) {
   const d = new Date(isoTimestamp)
@@ -38,6 +43,8 @@ const NUTRITION_FILTERS = [
   { key: 'sodiumMg',  label: 'Sodium ≥',   unit: 'mg' },
 ]
 
+const INITIAL_DAYS_SHOWN = 2
+
 export default function History({ refreshKey, onRefresh }) {
   const [meals,              setMeals]              = useState([])
   const [expanded,           setExpanded]           = useState(null)
@@ -46,6 +53,7 @@ export default function History({ refreshKey, onRefresh }) {
   const [filterTypes,        setFilterTypes]        = useState([])
   const [filterNutrition,    setFilterNutrition]    = useState({ proteinG: '', calories: '', fatG: '', sodiumMg: '' })
   const [showNutritionFilter,setShowNutritionFilter]= useState(false)
+  const [visibleDaysCount,   setVisibleDaysCount]   = useState(INITIAL_DAYS_SHOWN)
 
   const undoTimerRef = useRef(null)
   const settings   = getSettings()
@@ -54,6 +62,9 @@ export default function History({ refreshKey, onRefresh }) {
 
   function refresh() { setMeals(getMeals()) }
   useEffect(() => { refresh() }, [refreshKey])
+
+  // Reset to latest 2 days whenever filters/search change
+  useEffect(() => { setVisibleDaysCount(INITIAL_DAYS_SHOWN) }, [searchQuery, filterTypes, filterNutrition])
 
   // Poll while any meal is analyzing
   useEffect(() => {
@@ -201,14 +212,18 @@ export default function History({ refreshKey, onRefresh }) {
     )
   }
 
-  const groups = groupByDate(filteredMeals, resetHour)
+  const allGroups = groupByDate(filteredMeals, resetHour)
+  const isFiltering = !!(q || activeFilterCount > 0)
+  // When filtering/searching show all days; otherwise paginate by day
+  const visibleGroups = isFiltering ? allGroups : allGroups.slice(0, visibleDaysCount)
+  const hasOlderDays  = !isFiltering && allGroups.length > visibleDaysCount
 
   return (
     <PullToRefresh onRefresh={refresh} className="flex flex-col h-full overflow-y-auto scroll-touch pb-8 relative">
       <div className="px-4 pb-2 pt-safe">
         <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">History</h1>
         <p className="text-sm mt-0.5 text-cream-500 dark:text-pine-400">
-          {q || activeFilterCount > 0
+          {isFiltering
             ? `${filteredMeals.length} of ${meals.length}`
             : meals.length}{' '}
           meal{meals.length !== 1 ? 's' : ''}
@@ -302,11 +317,11 @@ export default function History({ refreshKey, onRefresh }) {
         </div>
       )}
 
-      {(q || activeFilterCount > 0) && filteredMeals.length === 0 && (
+      {isFiltering && filteredMeals.length === 0 && (
         <p className="text-xs text-cream-400 dark:text-pine-500 mt-2 text-center px-4">No meals match the current filters</p>
       )}
 
-      {groups.map(([date, dateMeals]) => (
+      {visibleGroups.map(([date, dateMeals]) => (
         <section key={date} className="mx-4 mt-4">
           <div className="flex items-center justify-between mb-2 px-1">
             <h2 className="text-sm font-semibold text-cream-600 dark:text-pine-400">{formatDate(date)}</h2>
@@ -332,6 +347,19 @@ export default function History({ refreshKey, onRefresh }) {
         </section>
       ))}
 
+      {/* Load older days */}
+      {hasOlderDays && (
+        <div className="mx-4 mt-4 mb-2">
+          <button
+            onClick={() => setVisibleDaysCount(c => c + 1)}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-medium text-pine-600 dark:text-pine-300 bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800 active:bg-cream-100 dark:active:bg-pine-800 transition-colors"
+          >
+            <ChevronLeft size={14} />
+            Show {allGroups[visibleDaysCount] ? formatDate(allGroups[visibleDaysCount][0]) : 'older day'}
+          </button>
+        </div>
+      )}
+
       {/* Undo delete toast */}
       {undoMeal && (
         <div className="sticky bottom-4 left-0 right-0 flex justify-center px-4 animate-fade-in pointer-events-none">
@@ -354,11 +382,69 @@ export default function History({ refreshKey, onRefresh }) {
 function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, onReanalyze, onSaveEdit }) {
   const { analysis, thumbnail, timestamp, note, status, errorMessage, userNotes, _isMock } = meal
 
-  const [isEditing, setIsEditing] = useState(false)
-  const [editName,  setEditName]  = useState('')
-  const [editTypes, setEditTypes] = useState([])
-  const [editNote,  setEditNote]  = useState('')
-  const [selectedAnswers, setSelectedAnswers] = useState({})
+  const [isEditing,         setIsEditing]         = useState(false)
+  const [editName,          setEditName]           = useState('')
+  const [editTypes,         setEditTypes]          = useState([])
+  const [editNote,          setEditNote]           = useState('')
+  const [selectedAnswers,   setSelectedAnswers]    = useState({})
+  const [isNoteRecording,   setIsNoteRecording]    = useState(false)
+  const [isNoteTranscribing,setIsNoteTranscribing] = useState(false)
+
+  const noteWhisperStopRef    = useRef(null)
+  const noteStopListeningRef  = useRef(null)
+
+  const _settings  = getSettings()
+  const _openaiKey = _settings.openaiApiKey
+  const _useWhisper = !!(_openaiKey && _openaiKey.startsWith('sk-') && isMediaRecordingSupported())
+  const _canRecord  = _useWhisper || isSpeechSupported()
+
+  async function toggleNoteRecording() {
+    hapticLight()
+    if (isNoteRecording) {
+      if (_useWhisper) {
+        if (noteWhisperStopRef.current) {
+          const stopFn = noteWhisperStopRef.current
+          noteWhisperStopRef.current = null
+          setIsNoteRecording(false)
+          setIsNoteTranscribing(true)
+          try {
+            const blob = await stopFn()
+            const text = await transcribeWithWhisper(blob, _openaiKey)
+            if (text) setEditNote(prev => (prev ? prev + ' ' : '') + text)
+          } catch { /* silent */ } finally {
+            setIsNoteTranscribing(false)
+          }
+        }
+      } else {
+        noteStopListeningRef.current?.()
+        noteStopListeningRef.current = null
+        setIsNoteRecording(false)
+      }
+      return
+    }
+    setIsNoteRecording(true)
+    if (_useWhisper) {
+      try {
+        const stopAndGetBlob = await startMediaRecording(() => setIsNoteRecording(false))
+        noteWhisperStopRef.current = stopAndGetBlob
+      } catch { setIsNoteRecording(false) }
+    } else {
+      let accumulated = editNote ? editNote + ' ' : ''
+      const stop = startListening(
+        (text, isFinal) => {
+          if (isFinal) { accumulated += text + ' '; setEditNote(accumulated.trim()) }
+          else { setEditNote((accumulated + text).trim()) }
+        },
+        () => { setIsNoteRecording(false); noteStopListeningRef.current = null }
+      )
+      noteStopListeningRef.current = stop
+      setTimeout(() => {
+        if (noteStopListeningRef.current) {
+          noteStopListeningRef.current(); noteStopListeningRef.current = null; setIsNoteRecording(false)
+        }
+      }, 60000)
+    }
+  }
 
   const totals    = analysis?.totals || {}
   const flagged   = analysis?.flagged
@@ -670,9 +756,32 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
 
               {/* Note (used for display + reanalysis context) */}
               <div>
-                <label className="text-xs font-medium text-cream-600 dark:text-pine-400 mb-1 block">
-                  Notes / context for analysis
-                </label>
+                <div className="flex items-center gap-2 mb-1">
+                  <label className="text-xs font-medium text-cream-600 dark:text-pine-400 flex-1">
+                    Notes / context for analysis
+                  </label>
+                  {_canRecord && (
+                    <button
+                      onClick={toggleNoteRecording}
+                      disabled={isNoteTranscribing}
+                      aria-label={isNoteRecording ? 'Stop recording' : 'Dictate note'}
+                      className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
+                        isNoteRecording
+                          ? 'bg-red-500 animate-pulse'
+                          : isNoteTranscribing
+                            ? 'bg-amber-500'
+                            : 'bg-cream-200 dark:bg-pine-700 hover:bg-cream-300 dark:hover:bg-pine-600 active:scale-95'
+                      } disabled:opacity-40`}
+                    >
+                      {isNoteTranscribing
+                        ? <Loader  size={12} className="text-white animate-spin" />
+                        : isNoteRecording
+                          ? <MicOff size={12} className="text-white" />
+                          : <Mic    size={12} className="text-pine-600 dark:text-pine-300" />
+                      }
+                    </button>
+                  )}
+                </div>
                 <textarea
                   value={editNote}
                   onChange={e => setEditNote(e.target.value)}

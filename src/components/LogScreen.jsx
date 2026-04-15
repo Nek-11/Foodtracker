@@ -265,9 +265,9 @@ export default function LogScreen({ onMealSubmitted }) {
   return (
     <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-8">
 
-      {/* Barcode scanner overlay */}
+      {/* Barcode scanner overlay — z-[100] so it sits above the z-50 theme toggle */}
       {showScanner && (
-        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+        <div className="fixed inset-0 z-[100] bg-black flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 pt-safe">
             <p className="text-white font-semibold">Scan a barcode</p>

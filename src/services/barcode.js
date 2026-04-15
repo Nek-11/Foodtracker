@@ -4,43 +4,78 @@ import { NotFoundException } from '@zxing/library'
 const OPEN_FOOD_FACTS_URL = 'https://world.openfoodfacts.org/api/v0/product'
 
 /**
+ * Module-level camera stream cache.
+ *
+ * By reusing the same MediaStream across scanner sessions we avoid calling
+ * getUserMedia() more than once, which eliminates the repeated permission
+ * prompt on iOS Safari and some Android browsers.
+ */
+let _cachedStream = null
+
+function isStreamLive(stream) {
+  return !!stream && stream.getTracks().some(t => t.readyState === 'live')
+}
+
+async function acquireCameraStream() {
+  if (isStreamLive(_cachedStream)) return _cachedStream
+  // Clean up any dead tracks from a previous session
+  if (_cachedStream) {
+    _cachedStream.getTracks().forEach(t => t.stop())
+    _cachedStream = null
+  }
+  _cachedStream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: 'environment' } },
+  })
+  return _cachedStream
+}
+
+/**
  * Start the barcode scanner using the device camera.
+ *
+ * The camera stream is cached between calls so the OS/browser won't re-prompt
+ * for permission on subsequent opens.
+ *
  * @param {HTMLVideoElement} videoEl - Video element for the camera preview
  * @param {(barcode: string) => void} onDetected - Called once when a barcode is found
  * @param {(error: string) => void} onError - Called on fatal errors
- * @returns {() => void} stopFn - Call this to stop scanning
+ * @returns {() => void} stopFn - Call this to stop scanning (stream stays alive for reuse)
  */
 export async function startBarcodeScanner(videoEl, onDetected, onError) {
   const reader = new BrowserMultiFormatReader()
   let detected = false
 
+  let stream
   try {
-    const controls = await reader.decodeFromVideoDevice(
-      undefined, // use default (rear) camera
-      videoEl,
-      (result, err) => {
-        if (result && !detected) {
-          detected = true
-          onDetected(result.getText())
-        }
-        // NotFoundException fires every frame when no barcode is visible — ignore it
-        if (err && !(err instanceof NotFoundException)) {
-          onError(err.message || 'Camera error')
-        }
-      }
-    )
-
-    return () => {
-      try { controls.stop() } catch { /* already stopped */ }
-    }
+    stream = await acquireCameraStream()
   } catch (err) {
-    const msg = err.message || 'Could not access camera'
-    // NotAllowedError means the user denied camera permission
+    _cachedStream = null
     if (err.name === 'NotAllowedError') {
       onError('Camera permission denied. Please allow camera access and try again.')
     } else {
-      onError(msg)
+      onError(err.message || 'Could not access camera')
     }
+    return () => {}
+  }
+
+  try {
+    const controls = await reader.decodeFromStream(stream, videoEl, (result, err) => {
+      if (result && !detected) {
+        detected = true
+        onDetected(result.getText())
+      }
+      // NotFoundException fires every frame when no barcode is visible — ignore it
+      if (err && !(err instanceof NotFoundException)) {
+        onError(err.message || 'Camera error')
+      }
+    })
+
+    return () => {
+      try { controls.stop() } catch { /* already stopped */ }
+      // Do NOT stop stream tracks — keep stream alive so the next open
+      // reuses it and skips the permission prompt.
+    }
+  } catch (err) {
+    onError(err.message || 'Could not start scanner')
     return () => {}
   }
 }
