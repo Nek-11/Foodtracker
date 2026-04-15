@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { v4 as uuidv4 } from 'uuid'
 import { Camera, Mic, MicOff, FileText, X, Sparkles, Loader, ScanBarcode } from 'lucide-react'
 import { compressImage, makeThumbnail } from '../utils/imageUtils.js'
@@ -265,9 +266,11 @@ export default function LogScreen({ onMealSubmitted }) {
   return (
     <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-8">
 
-      {/* Barcode scanner overlay — z-[100] so it sits above the z-50 theme toggle */}
-      {showScanner && (
-        <div className="fixed inset-0 z-[100] bg-black flex flex-col">
+      {/* Barcode scanner overlay — rendered via portal directly on <body> so it
+          escapes the overflow-hidden stacking context of <main> and sits above
+          the theme toggle, bottom nav, and everything else. */}
+      {showScanner && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 pt-safe">
             <p className="text-white font-semibold">Scan a barcode</p>
@@ -327,7 +330,8 @@ export default function LogScreen({ onMealSubmitted }) {
           <div className="px-4 py-4 text-center">
             <p className="text-white/60 text-sm">Point at a product barcode</p>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Header */}
