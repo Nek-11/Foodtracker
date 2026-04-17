@@ -167,7 +167,6 @@ export default function LogScreen({ onMealSubmitted }) {
 
     // ── Start ──
     setError(null)
-    setIsRecording(true)
 
     if (useWhisper) {
       try {
@@ -175,10 +174,12 @@ export default function LogScreen({ onMealSubmitted }) {
           err => { setError(err); setIsRecording(false) }
         )
         whisperStopRef.current = stopAndGetBlob
+        setIsRecording(true)
       } catch {
         setIsRecording(false)
       }
     } else {
+      setIsRecording(true)
       let accumulated = note ? note + ' ' : ''
       const stop = startListening(
         (text, isFinal) => {

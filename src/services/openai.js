@@ -116,17 +116,23 @@ Please re-analyze incorporating this new information and return updated JSON.`
   return callOpenAI({ apiKey, model, reasoningEffort, messages })
 }
 
-export async function mergeAnalyses({ apiKey, model, results }) {
+export async function mergeAnalyses({ apiKey, model, results, foodImage }) {
   const numbered = results
     .map((r, i) => `Run ${i + 1}: ${JSON.stringify(r)}`)
     .join('\n\n')
 
+  const userContent = []
+  if (foodImage) {
+    userContent.push({ type: 'image_url', image_url: { url: foodImage } })
+  }
+  userContent.push({
+    type: 'text',
+    text: `Here are ${results.length} food analysis results to merge:\n\n${numbered}\n\nMerge these into one result following the rules in your instructions.`,
+  })
+
   const messages = [
     { role: 'system', content: MERGE_SYSTEM_PROMPT },
-    {
-      role: 'user',
-      content: `Here are ${results.length} food analysis results to merge:\n\n${numbered}\n\nMerge these into one result following the rules in your instructions.`,
-    },
+    { role: 'user', content: userContent },
   ]
 
   const response = await fetch(OPENAI_API_URL, {

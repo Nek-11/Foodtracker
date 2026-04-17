@@ -565,12 +565,12 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
             </div>
           ) : (
             <>
-              <div className="flex items-center gap-1.5">
-                <p className="text-sm font-medium text-pine-900 dark:text-cream-100 truncate">
+              <div className="flex items-start gap-1.5">
+                <p className="text-sm font-medium text-pine-900 dark:text-cream-100 line-clamp-2 break-words">
                   {displayName}
                 </p>
-                {flagged && <AlertTriangle size={12} className="text-amber-400 flex-shrink-0" />}
-                {_isMock  && <span className="text-[10px] text-amber-500 dark:text-amber-400 flex-shrink-0">demo</span>}
+                {flagged && <AlertTriangle size={12} className="text-amber-400 flex-shrink-0 mt-0.5" />}
+                {_isMock  && <span className="text-[10px] text-amber-500 dark:text-amber-400 flex-shrink-0 mt-0.5">demo</span>}
               </div>
               <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                 {mealTypes.map(type => (
@@ -646,8 +646,8 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
               {analysis.items?.length > 0 && (
                 <div className="space-y-1">
                   {analysis.items.map((item, i) => (
-                    <div key={i} className="flex justify-between text-xs">
-                      <span className="text-pine-700 dark:text-cream-300 truncate max-w-[65%]">{item.name} (~{fmt(item.estimatedWeightG)}g)</span>
+                    <div key={i} className="flex justify-between gap-2 items-start text-xs">
+                      <span className="text-pine-700 dark:text-cream-300 break-words min-w-0">{item.name} (~{fmt(item.estimatedWeightG)}g)</span>
                       <span className="text-cream-500 dark:text-pine-400 flex-shrink-0">{fmt(item.calories)} kcal</span>
                     </div>
                   ))}

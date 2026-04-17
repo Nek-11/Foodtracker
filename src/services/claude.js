@@ -77,16 +77,24 @@ Question rules (VERY IMPORTANT):
 
 export const MERGE_SYSTEM_PROMPT = `You are merging multiple food nutrition analysis results into one. Return valid JSON ONLY — no markdown, no explanation.
 
-Rules:
-- Identify the same food items across runs semantically (e.g. "steak", "entrecôte", "meat" are the same item)
-- For matched items: average each numeric field across the runs that identified that item, then round to the nearest integer
-- For items found in only one run: include them with their values as-is (still round each field to integer)
-- Use the canonical name from whichever run had the most detail for that item
-- For "questions": use the set from whichever run has the most questions; if tied use run 1's questions
-- For "flagged": match the chosen questions-run's flagged value
-- For "confidence": use the most conservative (lowest) value across all runs (low < medium < high)
-- For "mealSummary", "notes": use run 1's values
-- "totals": recompute by summing all merged items' macros (round each to integer)
+Anchor rules (read first):
+- All runs analyzed the SAME photo. Expect the same underlying items in each run, possibly under different names.
+- The food image is attached. Use it as ground truth to decide how many distinct items are actually present and to resolve naming disagreements.
+- Your output's item count should match the median item count across the runs (±1). If you are about to emit more items than that, you are almost certainly double-counting — merge the overlapping ones.
+
+Matching rules:
+- Identify the same food items across runs semantically (e.g. "steak", "entrecôte", "meat" are the same item; "chocolate bar" and "snack wrapped in chocolate" are the same item).
+- Treat two candidate items as the SAME item when any of these holds: they plausibly describe the same food visible in the photo, their macro totals are within ~30% of each other, or one name is a generic label (e.g. "snack", "bar", "piece") for a more specific name in another run.
+- When merging, use the most specific / descriptive name among the matched items.
+
+Averaging rules:
+- For matched items: average each numeric field across the runs that identified that item, then round to the nearest integer.
+- For items found in only one run: include them ONLY if the photo actually shows a distinct food that the other runs missed; otherwise drop them as noise.
+- For "questions": use the set from whichever run has the most questions; if tied use run 1's questions.
+- For "flagged": match the chosen questions-run's flagged value.
+- For "confidence": use the most conservative (lowest) value across all runs (low < medium < high).
+- For "mealSummary", "notes": use run 1's values.
+- "totals": recompute by summing all merged items' macros (round each to integer).
 
 Return the same JSON schema: { items, totals, confidence, flagged, questions, notes, mealSummary }`
 
@@ -220,15 +228,28 @@ Please re-analyze incorporating this new information and return updated JSON.`
   return callClaude({ apiKey, model, reasoningEffort, budgetTokens, maxTokens, content })
 }
 
-export async function mergeAnalyses({ apiKey, model, results }) {
+export async function mergeAnalyses({ apiKey, model, results, foodImage }) {
   const numbered = results
     .map((r, i) => `Run ${i + 1}: ${JSON.stringify(r)}`)
     .join('\n\n')
 
-  const content = [{
+  const content = []
+
+  if (foodImage) {
+    content.push({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: dataUrlToMediaType(foodImage),
+        data: dataUrlToBase64(foodImage),
+      },
+    })
+  }
+
+  content.push({
     type: 'text',
     text: `Here are ${results.length} food analysis results to merge:\n\n${numbered}\n\nMerge these into one result following the rules in your instructions.`,
-  }]
+  })
 
   const response = await fetch(CLAUDE_API_URL, {
     method: 'POST',
