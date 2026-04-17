@@ -4,7 +4,7 @@ import * as openai from './openai.js'
 
 // Hardcoded models — edit here to change, no UI toggle needed
 const CLAUDE_MODEL  = 'claude-sonnet-4-6'
-const OPENAI_MODEL  = 'gpt-4o-mini'
+const OPENAI_MODEL  = 'gpt-5-mini'
 const REASONING_EFFORT = 'medium'
 
 // Claude extended thinking budget for "medium" effort
@@ -54,12 +54,12 @@ async function runSingleReanalysis(provider, params) {
  * Merge multiple analysis results using a lightweight LLM call.
  * Falls back to results[0] if the merge call itself fails.
  */
-async function mergeResults(provider, apiKey, model, results) {
+async function mergeResults(provider, apiKey, model, results, foodImage) {
   if (results.length === 1) return results[0]
   try {
     return provider === 'openai'
-      ? await openai.mergeAnalyses({ apiKey, model, results })
-      : await claude.mergeAnalyses({ apiKey, model, results })
+      ? await openai.mergeAnalyses({ apiKey, model, results, foodImage })
+      : await claude.mergeAnalyses({ apiKey, model, results, foodImage })
   } catch {
     // Merge failed — return first result as safe fallback
     return results[0]
@@ -99,7 +99,7 @@ export async function analyzeMeal({ foodImage, labelImage, note }) {
     throw settled[0].reason
   }
 
-  return mergeResults(provider, params.apiKey, params.model, successful)
+  return mergeResults(provider, params.apiKey, params.model, successful, foodImage)
 }
 
 export async function reanalyzeMeal({ foodImage, labelImage, note, previousAnalysis }) {
@@ -135,5 +135,5 @@ export async function reanalyzeMeal({ foodImage, labelImage, note, previousAnaly
     throw settled[0].reason
   }
 
-  return mergeResults(provider, params.apiKey, params.model, successful)
+  return mergeResults(provider, params.apiKey, params.model, successful, foodImage)
 }
