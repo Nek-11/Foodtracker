@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { v4 as uuidv4 } from 'uuid'
 import { Camera, Mic, MicOff, FileText, X, Sparkles, Loader, ScanBarcode } from 'lucide-react'
 import { compressImage, makeThumbnail } from '../utils/imageUtils.js'
-import { analyzeMeal, NoApiKeyError } from '../services/analyzer.js'
+import { analyzeMeal } from '../services/analyzer.js'
 import { saveMeal, savePendingData, updateMeal, clearPendingData, getSettings } from '../services/storage.js'
 import {
   startListening, isSpeechSupported,
@@ -36,6 +36,9 @@ export default function LogScreen({ onMealSubmitted }) {
   const labelInputRef     = useRef(null)
   const scannerVideoRef   = useRef(null)
   const stopScannerRef    = useRef(null)
+  const noteRef           = useRef('')   // mirrors `note` for reads from async fns
+
+  useEffect(() => { noteRef.current = note }, [note])
 
   // Determine recording mode
   const settings    = getSettings()
@@ -200,8 +203,51 @@ export default function LogScreen({ onMealSubmitted }) {
 
   // ── Submit (background processing) ────────────────────────────────────────
 
+  /**
+   * If the user tapped Log while still recording/transcribing, stop the
+   * recording and wait for the transcript. Returns the final note text
+   * (existing note + appended transcript), or null on transcription failure.
+   */
+  async function finalizeRecordingIfActive() {
+    // Whisper: stop and await the blob + transcription
+    if (isRecording && useWhisper && whisperStopRef.current) {
+      const stopFn = whisperStopRef.current
+      whisperStopRef.current = null
+      setIsRecording(false)
+      setIsTranscribing(true)
+      try {
+        const blob = await stopFn()
+        const text = await transcribeWithWhisper(blob, openaiKey)
+        setIsTranscribing(false)
+        const merged = [noteRef.current.trim(), (text || '').trim()].filter(Boolean).join(' ')
+        if (text) setNote(merged)
+        return merged
+      } catch {
+        setIsTranscribing(false)
+        setError('Transcription failed. Try again or type your note manually.')
+        return null
+      }
+    }
+
+    // Web Speech: note is already updated via callback; just stop and read ref.
+    if (isRecording && !useWhisper && stopListeningRef.current) {
+      stopListeningRef.current()
+      stopListeningRef.current = null
+      setIsRecording(false)
+      // Give the browser a tick to flush the final transcription event
+      await new Promise(r => setTimeout(r, 300))
+      return noteRef.current.trim()
+    }
+
+    return noteRef.current.trim()
+  }
+
   async function handleSubmit() {
-    if (!foodImage && !labelImage && !note.trim() && !scannedProduct) {
+    // Stop recording first so the transcript is captured before submit.
+    const finalNote = await finalizeRecordingIfActive()
+    if (finalNote === null) return // transcription failed; error surfaced
+
+    if (!foodImage && !labelImage && !finalNote && !scannedProduct) {
       hapticError()
       setError('Add a photo, scan a barcode, or describe your meal first.')
       return
@@ -211,7 +257,7 @@ export default function LogScreen({ onMealSubmitted }) {
 
     // Build the final note: combine user note + scanned product context
     const productContext = scannedProduct ? formatProductForAnalysis(scannedProduct) : null
-    const fullNote = [note.trim(), productContext].filter(Boolean).join('\n\n')
+    const fullNote = [finalNote, productContext].filter(Boolean).join('\n\n')
 
     const mealId = uuidv4()
     const pendingMeal = {
@@ -244,14 +290,17 @@ export default function LogScreen({ onMealSubmitted }) {
     } catch (err) {
       hapticError()
       updateMeal(mealId, { status: 'error', errorMessage: friendlyError(err) })
-      // Keep pending data for NoApiKeyError so user can retry after adding a key
-      if (!(err instanceof NoApiKeyError)) clearPendingData(mealId)
+      // Always preserve pending data on failure so the user can retry with the
+      // original photo + note. It's cleared only on successful analysis.
     }
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  const canSubmit = !isLoading && (!!foodImage || !!labelImage || !!note.trim() || !!scannedProduct)
+  // Allow submit mid-recording: tapping Log will stop, transcribe, then analyze.
+  const canSubmit = !isLoading && !isTranscribing && (
+    isRecording || !!foodImage || !!labelImage || !!note.trim() || !!scannedProduct
+  )
 
   // Recording hint text
   const recordingHint = isTranscribing
@@ -392,31 +441,35 @@ export default function LogScreen({ onMealSubmitted }) {
             </button>
           </div>
         ) : (
-          <div className="flex gap-2">
-            {/* Photo upload */}
-            <label htmlFor="food-input"
-              className="flex-1 flex flex-col items-center justify-center gap-2.5 h-40 rounded-2xl border-2 border-dashed border-cream-300 dark:border-pine-700 bg-cream-50 dark:bg-pine-900 cursor-pointer active:border-pine-400 transition-colors"
-            >
-              <div className="w-12 h-12 rounded-full bg-cream-200 dark:bg-pine-800 flex items-center justify-center">
-                <Camera size={22} className="text-pine-400 dark:text-pine-300" />
-              </div>
-              <p className="text-xs font-medium text-pine-600 dark:text-cream-400 text-center">Take or upload a photo</p>
-            </label>
-
-            {/* Barcode scanner */}
-            <button
-              onClick={openBarcodeScanner}
-              className="flex flex-col items-center justify-center gap-2.5 w-28 h-40 rounded-2xl border-2 border-dashed border-cream-300 dark:border-pine-700 bg-cream-50 dark:bg-pine-900 cursor-pointer active:border-pine-400 transition-colors"
-            >
-              <div className="w-12 h-12 rounded-full bg-cream-200 dark:bg-pine-800 flex items-center justify-center">
-                <ScanBarcode size={22} className="text-pine-400 dark:text-pine-300" />
-              </div>
-              <p className="text-xs font-medium text-pine-600 dark:text-cream-400 text-center">Scan barcode</p>
-            </button>
-          </div>
+          <label htmlFor="food-input"
+            className="flex flex-col items-center justify-center gap-2.5 h-40 rounded-2xl border-2 border-dashed border-cream-300 dark:border-pine-700 bg-cream-50 dark:bg-pine-900 cursor-pointer active:border-pine-400 transition-colors"
+          >
+            <div className="w-12 h-12 rounded-full bg-cream-200 dark:bg-pine-800 flex items-center justify-center">
+              <Camera size={22} className="text-pine-400 dark:text-pine-300" />
+            </div>
+            <p className="text-xs font-medium text-pine-600 dark:text-cream-400 text-center">Take or upload a photo</p>
+          </label>
         )}
         <input id="food-input" ref={foodInputRef} type="file" accept="image/*" capture="environment" onChange={handleFoodImage} />
       </section>
+
+      {/* Barcode — always available, even after a photo is added */}
+      {!scannedProduct && (
+        <section className="mx-4 mt-3">
+          <button
+            onClick={openBarcodeScanner}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800 cursor-pointer active:bg-cream-100 dark:active:bg-pine-800 transition-colors text-left"
+          >
+            <div className="w-10 h-10 rounded-xl bg-cream-200 dark:bg-pine-800 flex items-center justify-center flex-shrink-0">
+              <ScanBarcode size={18} className="text-cream-500 dark:text-pine-400" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-pine-700 dark:text-cream-300">Scan a barcode</p>
+              <p className="text-xs text-cream-400 dark:text-pine-500">Adds exact nutrition from the database</p>
+            </div>
+          </button>
+        </section>
+      )}
 
       {/* Nutrition label — shown always (not only after food photo) */}
       <section className="mx-4 mt-3">

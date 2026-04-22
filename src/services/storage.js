@@ -30,6 +30,7 @@ const DEFAULT_SETTINGS = {
   resetHour:      2,    // meals logged before 2am count as "previous day"
   theme:          'system',
   mealTimeSlots:  DEFAULT_MEAL_SLOTS,
+  excludedDays:   [],   // YYYY-MM-DD keys excluded from 7-day averages
 }
 
 // ─── Thumbnail cleanup ────────────────────────────────────────────────────────
@@ -191,8 +192,14 @@ export function getDateKey(isoTimestamp, resetHour = 0) {
   return `${y}-${m}-${day}`
 }
 
-function todayKey() {
+/**
+ * Returns the date key (YYYY-MM-DD) representing "today" given the user's
+ * day-reset hour. Before resetHour, "today" is still the previous calendar
+ * day so early-morning meals group with the prior day.
+ */
+export function getTodayKey(resetHour = 2) {
   const d = new Date()
+  if (d.getHours() < resetHour) d.setDate(d.getDate() - 1)
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
@@ -213,17 +220,44 @@ export function getDailyTotals(dateStr) {
 }
 
 export function getLast7DaysTotals() {
+  const { resetHour = 2, excludedDays = [] } = getSettings()
+  const excluded = new Set(excludedDays)
   const days = []
+  // Anchor on the user's "today" so the week rolls over at resetHour, not midnight.
+  const base = new Date()
+  if (base.getHours() < resetHour) base.setDate(base.getDate() - 1)
   for (let i = 6; i >= 0; i--) {
-    const d = new Date()
+    const d = new Date(base)
     d.setDate(d.getDate() - i)
     const y = d.getFullYear()
     const mon = String(d.getMonth() + 1).padStart(2, '0')
     const day = String(d.getDate()).padStart(2, '0')
     const dateStr = `${y}-${mon}-${day}`
-    days.push({ date: dateStr, totals: getDailyTotals(dateStr) })
+    days.push({
+      date:     dateStr,
+      totals:   getDailyTotals(dateStr),
+      excluded: excluded.has(dateStr),
+    })
   }
   return days
+}
+
+// ─── Excluded days (from averages) ──────────────────────────────────────────
+
+export function getExcludedDays() {
+  return getSettings().excludedDays || []
+}
+
+export function setDayExcluded(dateStr, excluded) {
+  const settings = getSettings()
+  const current = new Set(settings.excludedDays || [])
+  if (excluded) current.add(dateStr)
+  else current.delete(dateStr)
+  saveSettings({ ...settings, excludedDays: [...current] })
+}
+
+export function isDayExcluded(dateStr) {
+  return (getSettings().excludedDays || []).includes(dateStr)
 }
 
 function sumMacros(totalsArray) {

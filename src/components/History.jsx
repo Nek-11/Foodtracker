@@ -76,19 +76,37 @@ export default function History({ refreshKey, onRefresh }) {
 
   async function handleRetry(meal) {
     const pending = getPendingData(meal.id)
-    if (!pending) return
+    // Pending data means we have the original image + note — do a fresh analyze.
+    // Otherwise, if a previous analysis exists (e.g. reanalyze failed), retry that.
+    const canFreshAnalyze = !!pending
+    const canReanalyze    = !!meal.analysis
+    if (!canFreshAnalyze && !canReanalyze) return
+
     hapticLight()
     updateMeal(meal.id, { status: 'analyzing', errorMessage: null })
     refresh()
     try {
-      const analysis = await analyzeMeal({
-        foodImage:  pending.foodImage  || null,
-        labelImage: pending.labelImage || null,
-        note:       pending.note       || '',
-      })
-      updateMeal(meal.id, { analysis, status: 'done' })
-      clearPendingData(meal.id)
+      if (canFreshAnalyze) {
+        const analysis = await analyzeMeal({
+          foodImage:  pending.foodImage  || null,
+          labelImage: pending.labelImage || null,
+          note:       pending.note       || '',
+        })
+        updateMeal(meal.id, { analysis, status: 'done' })
+        clearPendingData(meal.id)
+      } else {
+        const contextNote = [meal.userNotes, meal.note].filter(Boolean).join('\n')
+        const analysis = await reanalyzeMeal({
+          foodImage:        null,
+          labelImage:       null,
+          note:             contextNote,
+          previousAnalysis: meal.analysis,
+        })
+        updateMeal(meal.id, { analysis: { ...analysis, flagged: false }, status: 'done' })
+      }
+      hapticSuccess()
     } catch (err) {
+      hapticError()
       updateMeal(meal.id, { status: 'error', errorMessage: friendlyError(err) })
     }
     refresh()
@@ -142,12 +160,14 @@ export default function History({ refreshKey, onRefresh }) {
     if (onRefresh) onRefresh()
   }
 
-  function handleSaveEdit(meal, { customName, mealTypes, note, shouldReanalyze }) {
-    updateMeal(meal.id, {
+  function handleSaveEdit(meal, { customName, mealTypes, note, timestamp, shouldReanalyze }) {
+    const updates = {
       customName:  customName || null,
       mealTypes:   mealTypes.length > 0 ? mealTypes : null,
       userNotes:   note || null,
-    })
+    }
+    if (timestamp && timestamp !== meal.timestamp) updates.timestamp = timestamp
+    updateMeal(meal.id, updates)
     refresh()
     if (shouldReanalyze && note.trim()) {
       // Pass the updated meal object so reanalyze reads the new userNotes
@@ -389,6 +409,8 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
   const [selectedAnswers,   setSelectedAnswers]    = useState({})
   const [isNoteRecording,   setIsNoteRecording]    = useState(false)
   const [isNoteTranscribing,setIsNoteTranscribing] = useState(false)
+  const [showAiNotes,       setShowAiNotes]        = useState(false)
+  const [editDateTime,      setEditDateTime]       = useState('')
 
   const noteWhisperStopRef    = useRef(null)
   const noteStopListeningRef  = useRef(null)
@@ -453,13 +475,24 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
   const isAnalyzing   = status === 'analyzing'
   const isInterrupted = status === 'interrupted'
   const isError       = status === 'error'
-  const canRetry      = (isInterrupted || isError) && !!getPendingData(meal.id)
+  // Retry works if we have either the original log data (pending) OR a previous
+  // analysis to re-run against. Previously this required pending, so network-
+  // error failures (which never had pending cleared) showed no retry button
+  // because LogScreen used to clear pending on error.
+  const canRetry      = (isInterrupted || isError) && (!!getPendingData(meal.id) || !!analysis)
 
   function openEdit() {
     setEditName(meal.customName || analysis?.mealSummary || '')
     setEditTypes(meal.mealTypes || [])
     setEditNote(userNotes || '')
+    setEditDateTime(toLocalDateTimeInputValue(timestamp))
     setIsEditing(true)
+  }
+
+  function resolveTimestamp() {
+    if (!editDateTime) return timestamp
+    const parsed = new Date(editDateTime)
+    return isNaN(parsed.getTime()) ? timestamp : parsed.toISOString()
   }
 
   function closeEdit() {
@@ -468,6 +501,7 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
       customName:      editName.trim(),
       mealTypes:       editTypes,
       note:            editNote.trim(),
+      timestamp:       resolveTimestamp(),
       shouldReanalyze: false,
     })
     setIsEditing(false)
@@ -478,6 +512,7 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
       customName:      editName.trim(),
       mealTypes:       editTypes,
       note:            editNote.trim(),
+      timestamp:       resolveTimestamp(),
       shouldReanalyze: true,
     })
     setIsEditing(false)
@@ -491,6 +526,7 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
       customName:      editName.trim(),
       mealTypes:       newTypes,
       note:            editNote.trim(),
+      timestamp:       resolveTimestamp(),
       shouldReanalyze: false,
     })
   }
@@ -559,18 +595,25 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
 
         <div className="flex-1 min-w-0">
           {isAnalyzing ? (
-            <div className="space-y-1.5">
-              <div className="h-3.5 w-3/4 rounded-full bg-pine-800 shimmer" />
-              <div className="h-2.5 w-1/2 rounded-full bg-pine-800 shimmer" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-pine-700 dark:text-cream-200 flex items-center gap-1.5">
+                Processing
+                <span className="inline-flex gap-0.5">
+                  <span className="w-1 h-1 rounded-full bg-pine-400 animate-pulse" />
+                  <span className="w-1 h-1 rounded-full bg-pine-400 animate-pulse [animation-delay:150ms]" />
+                  <span className="w-1 h-1 rounded-full bg-pine-400 animate-pulse [animation-delay:300ms]" />
+                </span>
+              </p>
+              <p className="text-xs text-cream-500 dark:text-pine-400">AI is analyzing this meal…</p>
             </div>
           ) : (
             <>
-              <div className="flex items-start gap-1.5">
-                <p className="text-sm font-medium text-pine-900 dark:text-cream-100 line-clamp-2 break-words">
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-medium text-pine-900 dark:text-cream-100 truncate flex-1 min-w-0">
                   {displayName}
                 </p>
-                {flagged && <AlertTriangle size={12} className="text-amber-400 flex-shrink-0 mt-0.5" />}
-                {_isMock  && <span className="text-[10px] text-amber-500 dark:text-amber-400 flex-shrink-0 mt-0.5">demo</span>}
+                {flagged && <AlertTriangle size={12} className="text-amber-400 flex-shrink-0" />}
+                {_isMock  && <span className="text-[10px] text-amber-500 dark:text-amber-400 flex-shrink-0">demo</span>}
               </div>
               <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                 {mealTypes.map(type => (
@@ -618,12 +661,15 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
 
           {/* Error / interrupted state */}
           {(isError || isInterrupted) && (
-            <div className="rounded-xl p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
-              <p className="text-xs text-red-600 dark:text-red-300">{errorMessage || 'Analysis failed.'}</p>
+            <div className="rounded-xl p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 space-y-2.5">
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={14} className="text-red-500 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-600 dark:text-red-300">{errorMessage || 'Analysis failed.'}</p>
+              </div>
               {canRetry && (
                 <button onClick={onRetry}
-                  className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-pine-500 dark:text-pine-300 hover:text-pine-400">
-                  <RefreshCw size={12} /> Retry analysis
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-pine-500 dark:bg-pine-400 text-white dark:text-pine-950 text-sm font-semibold active:scale-[0.98] transition-all shadow-sm">
+                  <RefreshCw size={14} /> Retry analysis
                 </button>
               )}
             </div>
@@ -692,14 +738,24 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
                 </div>
               )}
 
-              {/* AI notes (informational tips) */}
+              {/* AI notes (informational tips) — collapsed by default */}
               {analysis.notes?.length > 0 && (
-                <div className="space-y-1">
-                  {analysis.notes.map((n, i) => (
-                    <p key={i} className="text-xs text-cream-500 dark:text-pine-400 italic">
-                      {n}
-                    </p>
-                  ))}
+                <div>
+                  <button
+                    onClick={() => setShowAiNotes(v => !v)}
+                    className="flex items-center gap-1 text-[11px] font-medium text-cream-500 dark:text-pine-400 hover:text-pine-500 dark:hover:text-pine-300">
+                    {showAiNotes ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                    {showAiNotes ? 'Hide AI tips' : `Show AI tips (${analysis.notes.length})`}
+                  </button>
+                  {showAiNotes && (
+                    <div className="mt-2 space-y-1 animate-fade-in">
+                      {analysis.notes.map((n, i) => (
+                        <p key={i} className="text-xs text-cream-500 dark:text-pine-400 italic">
+                          {n}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </>
@@ -728,6 +784,20 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
                   placeholder="e.g. Chicken salad"
                   className="w-full rounded-xl px-3 py-2 text-sm bg-cream-100 dark:bg-pine-800 border border-cream-200 dark:border-pine-700 text-pine-900 dark:text-cream-100 placeholder-cream-400 dark:placeholder-pine-500 outline-none focus:ring-2 focus:ring-pine-400"
                 />
+              </div>
+
+              {/* Meal date / time */}
+              <div>
+                <label className="text-xs font-medium text-cream-600 dark:text-pine-400 mb-1 block">Date & time</label>
+                <input
+                  type="datetime-local"
+                  value={editDateTime}
+                  onChange={e => setEditDateTime(e.target.value)}
+                  className="w-full rounded-xl px-3 py-2 text-sm bg-cream-100 dark:bg-pine-800 border border-cream-200 dark:border-pine-700 text-pine-900 dark:text-cream-100 outline-none focus:ring-2 focus:ring-pine-400"
+                />
+                <p className="text-[10px] text-cream-400 dark:text-pine-500 mt-1">
+                  Move this meal to a different day or time — useful for back-logging.
+                </p>
               </div>
 
               {/* Meal types */}
@@ -830,6 +900,17 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
       )}
     </div>
   )
+}
+
+/**
+ * Format an ISO timestamp into the value a <input type="datetime-local"> expects
+ * (YYYY-MM-DDTHH:mm, in local time).
+ */
+function toLocalDateTimeInputValue(iso) {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 /**
