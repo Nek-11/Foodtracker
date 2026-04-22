@@ -4,28 +4,27 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
   Tooltip, ReferenceLine, BarChart, Bar, Cell
 } from 'recharts'
-import { getDailyTotals, getLast7DaysTotals, getGoals, getMealsByDate, getSettings } from '../services/storage.js'
+import { getDailyTotals, getLast7DaysTotals, getGoals, getMealsByDate, getSettings, getTodayKey, setDayExcluded } from '../services/storage.js'
 import { fmt, pct, progressBgColor, formatDate, MACRO_LABELS, getMealTypes, CATEGORY_STYLES } from '../utils/nutritionUtils.js'
+import { EyeOff, Eye } from 'lucide-react'
 import PullToRefresh from './PullToRefresh.jsx'
 
-function todayStr() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-}
-
 export default function Dashboard({ refreshKey, onRefresh }) {
-  const [selectedDate,    setSelectedDate]    = useState(todayStr)
+  const initialTodayKey = getTodayKey(getSettings().resetHour ?? 2)
+  const [selectedDate,    setSelectedDate]    = useState(initialTodayKey)
   const [totals,          setTotals]          = useState({})
   const [goals,           setGoals]           = useState({})
   const [weekData,        setWeekData]        = useState([])
   const [mealsByCategory, setMealsByCategory] = useState([])
   const [weekInsights,    setWeekInsights]    = useState([])
   const [weekStats,       setWeekStats]       = useState(null)
+  const [isDayExcluded,   setIsDayExcluded]   = useState(false)
   const dateInputRef = useRef(null)
 
   useEffect(() => {
     const settings = getSettings()
     const timeSlots = settings.mealTimeSlots
+    setIsDayExcluded((settings.excludedDays || []).includes(selectedDate))
 
     setTotals(getDailyTotals(selectedDate))
     const g = getGoals()
@@ -53,16 +52,17 @@ export default function Dashboard({ refreshKey, onRefresh }) {
 
     // 7-day chart — always relative to today
     const raw7 = getLast7DaysTotals()
-    const week = raw7.map(({ date, totals: t }) => ({
+    const week = raw7.map(({ date, totals: t, excluded }) => ({
       day: formatDate(date) === 'Today'
         ? 'Today'
         : new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' }),
-      calories: fmt(t.calories),
-      protein:  fmt(t.proteinG),
+      calories: excluded ? 0 : fmt(t.calories),
+      protein:  excluded ? 0 : fmt(t.proteinG),
+      excluded,
     }))
     setWeekData(week)
 
-    const active = raw7.filter(d => d.totals.calories > 300)
+    const active = raw7.filter(d => !d.excluded && d.totals.calories > 300)
     if (active.length >= 2) {
       const avg = key => active.reduce((s, d) => s + d.totals[key], 0) / active.length
       const avgCal     = avg('calories')
@@ -98,13 +98,20 @@ export default function Dashboard({ refreshKey, onRefresh }) {
   }, [refreshKey, selectedDate])
 
   const calPct = pct(totals.calories, goals.calories)
-  const today  = todayStr()
+  const today  = getTodayKey(getSettings().resetHour ?? 2)
 
   function goDay(delta) {
     const d = new Date(selectedDate + 'T12:00:00')
     d.setDate(d.getDate() + delta)
     const next = d.toISOString().slice(0, 10)
     if (next <= today) setSelectedDate(next)
+  }
+
+  function toggleDayExcluded() {
+    const next = !isDayExcluded
+    setDayExcluded(selectedDate, next)
+    setIsDayExcluded(next)
+    if (onRefresh) onRefresh()
   }
 
   function handlePullRefresh() {
@@ -163,6 +170,21 @@ export default function Dashboard({ refreshKey, onRefresh }) {
             </button>
           )}
         </div>
+
+        {/* Exclude from averages toggle */}
+        <button
+          onClick={toggleDayExcluded}
+          className={`mt-2 flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full border transition-all active:scale-95 ${
+            isDayExcluded
+              ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+              : 'bg-cream-100 dark:bg-pine-800 text-cream-500 dark:text-pine-400 border-cream-200 dark:border-pine-700'
+          }`}
+        >
+          {isDayExcluded
+            ? <><EyeOff size={11} /> Excluded from averages</>
+            : <><Eye size={11} /> Included in averages</>
+          }
+        </button>
       </div>
 
       {/* Calorie hero */}
@@ -247,7 +269,13 @@ export default function Dashboard({ refreshKey, onRefresh }) {
             <ReferenceLine y={goals.calories} stroke="#3d9b6a" strokeDasharray="4 3" strokeOpacity={0.6} />
             <Bar dataKey="calories" radius={[6, 6, 0, 0]}>
               {weekData.map((entry, i) => (
-                <Cell key={i} fill={entry.day === 'Today' ? '#3d9b6a' : '#15472d'} />
+                <Cell
+                  key={i}
+                  fill={entry.excluded
+                    ? '#52525b'
+                    : entry.day === 'Today' ? '#3d9b6a' : '#15472d'}
+                  fillOpacity={entry.excluded ? 0.4 : 1}
+                />
               ))}
             </Bar>
           </BarChart>
