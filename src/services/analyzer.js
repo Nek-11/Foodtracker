@@ -19,19 +19,26 @@ export class NoApiKeyError extends Error {
   }
 }
 
-/** Thrown when the device is offline — fail fast instead of waiting on fetch timeouts. */
-export class NetworkError extends Error {
-  constructor() {
-    super('No network connection')
-    this.name = 'NetworkError'
-  }
+/**
+ * Test whether an error is a transient network failure (typical when iOS
+ * suspends the page during a phone-lock, the wifi blips, etc.). The caller
+ * should keep the meal in a "retryable" state instead of marking it failed.
+ */
+export function isNetworkError(err) {
+  if (!err) return false
+  if (err.name === 'NetworkError' || err.name === 'AbortError') return true
+  if (err instanceof TypeError) return true
+  const msg = (err.message || String(err)).toLowerCase()
+  return msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('load failed')
 }
 
-function checkOnline() {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    throw new NetworkError()
-  }
-}
+// In-memory set of meal IDs whose analyze() promise is still pending in this
+// JS context. Used by the auto-resume logic so it doesn't kick off a duplicate
+// fetch while the original is still running.
+const _inFlight = new Set()
+export function markInFlight(id)   { _inFlight.add(id) }
+export function unmarkInFlight(id) { _inFlight.delete(id) }
+export function isInFlight(id)     { return _inFlight.has(id) }
 
 function resolveParams(settings) {
   const provider = settings.provider || 'claude'
@@ -85,7 +92,6 @@ export async function analyzeMeal({ foodImage, labelImage, note }) {
   const { provider, apiKey } = resolveParams(settings)
 
   if (!apiKey?.trim()) throw new NoApiKeyError()
-  checkOnline()
 
   const params = {
     apiKey: apiKey.trim(),
@@ -122,7 +128,6 @@ export async function reanalyzeMeal({ foodImage, labelImage, note, previousAnaly
   const { provider, apiKey } = resolveParams(settings)
 
   if (!apiKey?.trim()) throw new NoApiKeyError()
-  checkOnline()
 
   const params = {
     apiKey: apiKey.trim(),

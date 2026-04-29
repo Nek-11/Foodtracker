@@ -4,7 +4,9 @@ import LogScreen   from './components/LogScreen.jsx'
 import Dashboard   from './components/Dashboard.jsx'
 import History     from './components/History.jsx'
 import Settings    from './components/Settings.jsx'
-import { getSettings, saveSettings, getMeals, updateMeal, cleanupOldThumbnails } from './services/storage.js'
+import { getSettings, saveSettings, getMeals, updateMeal, cleanupOldThumbnails, getPendingData, clearPendingData } from './services/storage.js'
+import { analyzeMeal, isNetworkError, isInFlight, markInFlight, unmarkInFlight } from './services/analyzer.js'
+import { friendlyError } from './utils/errorMessages.js'
 
 function getEffectiveDark(theme) {
   if (theme === 'dark') return true
@@ -34,22 +36,10 @@ export default function App() {
     return () => mq.removeEventListener('change', handler)
   }, [theme])
 
-  // Offline / online detection — also rescue any in-flight analyses when we
-  // lose network so the user isn't stuck on a "Processing…" card forever.
+  // Offline / online detection (banner only — recovery happens on focus)
   useEffect(() => {
     const onOnline  = () => setIsOffline(false)
-    const onOffline = () => {
-      setIsOffline(true)
-      getMeals().forEach(m => {
-        if (m.status === 'analyzing') {
-          updateMeal(m.id, {
-            status: 'interrupted',
-            errorMessage: 'No network connection — open the meal to retry.',
-          })
-        }
-      })
-      setRefreshKey(k => k + 1)
-    }
+    const onOffline = () => setIsOffline(true)
     window.addEventListener('online',  onOnline)
     window.addEventListener('offline', onOffline)
     return () => {
@@ -58,17 +48,81 @@ export default function App() {
     }
   }, [])
 
-  // Fix any meals stuck in 'analyzing' from a previous session
-  // Also strip thumbnails from old meals to stay within localStorage limits
+  // Strip thumbnails from old meals to stay within localStorage limits
   useEffect(() => {
     const settings = getSettings()
     const resetHour = settings.resetHour ?? 2
     cleanupOldThumbnails(resetHour)
-    getMeals().forEach(m => {
-      if (m.status === 'analyzing') {
-        updateMeal(m.id, { status: 'interrupted', errorMessage: 'Analysis was interrupted. Open the meal to retry.' })
+  }, [])
+
+  // ── Auto-resume interrupted analyses ──────────────────────────────────────
+  // iOS suspends the JS context when the phone is locked or the PWA is
+  // backgrounded, which kills any in-flight fetch. When the app comes back
+  // into focus (or the network reconnects), pick up any meal that's still
+  // 'analyzing' or 'interrupted' and quietly retry it from its pending data.
+  useEffect(() => {
+    let running = false
+    async function resume() {
+      if (running) return
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+      running = true
+      try {
+        const meals = getMeals()
+        for (const m of meals) {
+          if (m.status !== 'analyzing' && m.status !== 'interrupted') continue
+          // Don't double-fire while the original LogScreen/History attempt is
+          // still awaiting in this JS context.
+          if (isInFlight(m.id)) continue
+          const pending = getPendingData(m.id)
+          if (!pending) continue
+          markInFlight(m.id)
+          updateMeal(m.id, { status: 'analyzing', errorMessage: null })
+          setRefreshKey(k => k + 1)
+          try {
+            const analysis = await analyzeMeal({
+              foodImage:  pending.foodImage  || null,
+              labelImage: pending.labelImage || null,
+              note:       pending.note       || '',
+            })
+            updateMeal(m.id, { analysis, status: 'done' })
+            clearPendingData(m.id)
+          } catch (err) {
+            // Network blip → leave as 'interrupted' so we'll retry on next focus.
+            // Real error → mark as 'error' so the user sees it.
+            if (isNetworkError(err)) {
+              updateMeal(m.id, {
+                status: 'interrupted',
+                errorMessage: 'Paused — will resume when the connection is back.',
+              })
+            } else {
+              updateMeal(m.id, { status: 'error', errorMessage: friendlyError(err) })
+            }
+          } finally {
+            unmarkInFlight(m.id)
+          }
+          setRefreshKey(k => k + 1)
+        }
+      } finally {
+        running = false
       }
-    })
+    }
+
+    const onVisible = () => { if (!document.hidden) resume() }
+    const onOnline  = () => resume()
+
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('online', onOnline)
+    window.addEventListener('focus', resume)
+    window.addEventListener('ft-resume-analyses', resume)
+    // Run once on mount to pick up anything left from a previous session
+    resume()
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('focus', resume)
+      window.removeEventListener('ft-resume-analyses', resume)
+    }
   }, [])
 
   // Cycle: light → dark → system → light…

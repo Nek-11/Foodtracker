@@ -8,7 +8,7 @@ import {
 import { hapticLight, hapticSuccess, hapticError } from '../utils/haptics.js'
 import { friendlyError } from '../utils/errorMessages.js'
 import { getMeals, deleteMeal, saveMeal, updateMeal, getPendingData, clearPendingData, getSettings } from '../services/storage.js'
-import { analyzeMeal, reanalyzeMeal } from '../services/analyzer.js'
+import { analyzeMeal, reanalyzeMeal, markInFlight, unmarkInFlight } from '../services/analyzer.js'
 import {
   fmt, formatDate, formatTime, MACRO_LABELS,
   getMealCategory, getMealTypes, CATEGORY_STYLES, ALL_MEAL_TYPES,
@@ -85,6 +85,7 @@ export default function History({ refreshKey, onRefresh }) {
     if (!canFreshAnalyze && !canReanalyze) return
 
     hapticLight()
+    markInFlight(meal.id)
     updateMeal(meal.id, { status: 'analyzing', errorMessage: null })
     refresh()
     try {
@@ -110,6 +111,8 @@ export default function History({ refreshKey, onRefresh }) {
     } catch (err) {
       hapticError()
       updateMeal(meal.id, { status: 'error', errorMessage: friendlyError(err) })
+    } finally {
+      unmarkInFlight(meal.id)
     }
     refresh()
     if (onRefresh) onRefresh()
@@ -142,6 +145,7 @@ export default function History({ refreshKey, onRefresh }) {
     // Always include all available context: new override + saved notes + original log note
     const contextNote = [overrideNote, meal.userNotes, meal.note].filter(Boolean).join('\n')
     hapticLight()
+    markInFlight(meal.id)
     updateMeal(meal.id, { status: 'analyzing', errorMessage: null })
     refresh()
     try {
@@ -157,6 +161,8 @@ export default function History({ refreshKey, onRefresh }) {
     } catch (err) {
       hapticError()
       updateMeal(meal.id, { status: 'error', errorMessage: friendlyError(err) })
+    } finally {
+      unmarkInFlight(meal.id)
     }
     refresh()
     if (onRefresh) onRefresh()

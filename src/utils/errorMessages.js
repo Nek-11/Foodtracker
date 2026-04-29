@@ -9,7 +9,7 @@ export function friendlyError(err) {
 
   const msg = (err?.message || String(err)).toLowerCase()
 
-  if (err?.name === 'NetworkError' || err instanceof TypeError || msg.includes('failed to fetch') || msg.includes('network')) {
+  if (err instanceof TypeError || msg.includes('failed to fetch') || msg.includes('network')) {
     return 'No network connection — check your internet and try again.'
   }
   if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('api key') || msg.includes('incorrect api key')) {
