@@ -5,17 +5,31 @@ import * as openai from './openai.js'
 // Hardcoded models — edit here to change, no UI toggle needed
 const CLAUDE_MODEL  = 'claude-sonnet-4-6'
 const OPENAI_MODEL  = 'gpt-5-mini'
-const REASONING_EFFORT = 'medium'
+const REASONING_EFFORT = 'low'
 
-// Claude extended thinking budget for "medium" effort
-const CLAUDE_BUDGET_TOKENS = 5000
-const CLAUDE_MAX_TOKENS    = 12000
+// Claude extended thinking budget for "low" effort
+const CLAUDE_BUDGET_TOKENS = 1024
+const CLAUDE_MAX_TOKENS    = 5000
 
 /** Thrown when no API key is configured — pending data is preserved so user can retry. */
 export class NoApiKeyError extends Error {
   constructor() {
     super('No API key configured')
     this.name = 'NoApiKeyError'
+  }
+}
+
+/** Thrown when the device is offline — fail fast instead of waiting on fetch timeouts. */
+export class NetworkError extends Error {
+  constructor() {
+    super('No network connection')
+    this.name = 'NetworkError'
+  }
+}
+
+function checkOnline() {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new NetworkError()
   }
 }
 
@@ -71,6 +85,7 @@ export async function analyzeMeal({ foodImage, labelImage, note }) {
   const { provider, apiKey } = resolveParams(settings)
 
   if (!apiKey?.trim()) throw new NoApiKeyError()
+  checkOnline()
 
   const params = {
     apiKey: apiKey.trim(),
@@ -107,6 +122,7 @@ export async function reanalyzeMeal({ foodImage, labelImage, note, previousAnaly
   const { provider, apiKey } = resolveParams(settings)
 
   if (!apiKey?.trim()) throw new NoApiKeyError()
+  checkOnline()
 
   const params = {
     apiKey: apiKey.trim(),

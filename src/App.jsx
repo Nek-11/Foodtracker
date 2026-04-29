@@ -34,10 +34,22 @@ export default function App() {
     return () => mq.removeEventListener('change', handler)
   }, [theme])
 
-  // Offline / online detection
+  // Offline / online detection — also rescue any in-flight analyses when we
+  // lose network so the user isn't stuck on a "Processing…" card forever.
   useEffect(() => {
     const onOnline  = () => setIsOffline(false)
-    const onOffline = () => setIsOffline(true)
+    const onOffline = () => {
+      setIsOffline(true)
+      getMeals().forEach(m => {
+        if (m.status === 'analyzing') {
+          updateMeal(m.id, {
+            status: 'interrupted',
+            errorMessage: 'No network connection — open the meal to retry.',
+          })
+        }
+      })
+      setRefreshKey(k => k + 1)
+    }
     window.addEventListener('online',  onOnline)
     window.addEventListener('offline', onOffline)
     return () => {
