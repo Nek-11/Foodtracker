@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, X } from 'lucide-react'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
@@ -448,11 +449,15 @@ function CalendarModal({ today, selectedDate, goals, resetHour, onSelect, onClos
 
   const isFutureMonth = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-01` > today
 
-  return (
-    <div className="fixed inset-0 z-[9000] bg-black/50 flex items-end sm:items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9000] bg-black/50 flex items-end sm:items-center justify-center px-4 pt-4 animate-fade-in"
+      style={{ paddingBottom: 'max(1rem, calc(var(--sab) + 1rem))' }}
+      onClick={onClose}
+    >
       <div
         onClick={e => e.stopPropagation()}
-        className="w-full max-w-md rounded-2xl bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800 p-4 shadow-xl"
+        className="w-full max-w-md max-h-full overflow-y-auto rounded-2xl bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800 p-4 shadow-xl"
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
@@ -534,7 +539,8 @@ function CalendarModal({ today, selectedDate, goals, resetHour, onSelect, onClos
           })}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
