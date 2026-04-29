@@ -59,6 +59,25 @@ describe('Dashboard component', () => {
     expect(screen.getByText('Stats')).toBeInTheDocument()
     expect(screen.getByText('Calories')).toBeInTheDocument()
   })
+
+  it('opens calendar via portal with safe-area padding and scroll fallback', async () => {
+    const { fireEvent } = await import('@testing-library/react')
+    const Dashboard = (await import('../components/Dashboard.jsx')).default
+    render(<Dashboard refreshKey={0} onRefresh={() => {}} />)
+
+    fireEvent.click(screen.getByLabelText('Open calendar'))
+
+    // The modal renders via portal on document.body so it can't be clipped
+    // by an ancestor's overflow.
+    const overlay = document.body.querySelector('.fixed.inset-0.z-\\[9000\\]')
+    expect(overlay).toBeTruthy()
+    // Safe-area inset bottom must be honored so the home indicator doesn't
+    // cut off the bottom of the calendar.
+    expect(overlay.style.paddingBottom).toContain('var(--sab)')
+    // The modal panel must cap its height and scroll if the month overruns.
+    const panel = overlay.querySelector('.max-h-full.overflow-y-auto')
+    expect(panel).toBeTruthy()
+  })
 })
 
 describe('LogScreen component', () => {
