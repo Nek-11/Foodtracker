@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, X } from 'lucide-react'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
   Tooltip, ReferenceLine, BarChart, Bar, Cell
 } from 'recharts'
-import { getDailyTotals, getLast7DaysTotals, getGoals, getMealsByDate, getSettings, getTodayKey, setDayExcluded } from '../services/storage.js'
+import { getDailyTotals, getLast7DaysTotals, getGoals, getMeals, getMealsByDate, getSettings, getTodayKey, setDayExcluded, getDateKey } from '../services/storage.js'
 import { fmt, pct, progressBgColor, formatDate, MACRO_LABELS, getMealTypes, CATEGORY_STYLES } from '../utils/nutritionUtils.js'
 import { EyeOff, Eye } from 'lucide-react'
 import PullToRefresh from './PullToRefresh.jsx'
@@ -19,7 +19,10 @@ export default function Dashboard({ refreshKey, onRefresh }) {
   const [weekInsights,    setWeekInsights]    = useState([])
   const [weekStats,       setWeekStats]       = useState(null)
   const [isDayExcluded,   setIsDayExcluded]   = useState(false)
+  const [showCalendar,    setShowCalendar]    = useState(false)
+  const [swipeDx,         setSwipeDx]         = useState(0)
   const dateInputRef = useRef(null)
+  const swipeStart   = useRef(null)
 
   useEffect(() => {
     const settings = getSettings()
@@ -51,13 +54,14 @@ export default function Dashboard({ refreshKey, onRefresh }) {
     )
 
     // 7-day chart — always relative to today
+    // Excluded days: bar chart shows them grayed at 0, line chart skips (null).
     const raw7 = getLast7DaysTotals()
     const week = raw7.map(({ date, totals: t, excluded }) => ({
       day: formatDate(date) === 'Today'
         ? 'Today'
         : new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' }),
       calories: excluded ? 0 : fmt(t.calories),
-      protein:  excluded ? 0 : fmt(t.proteinG),
+      protein:  excluded ? null : fmt(t.proteinG),
       excluded,
     }))
     setWeekData(week)
@@ -118,8 +122,52 @@ export default function Dashboard({ refreshKey, onRefresh }) {
     if (onRefresh) onRefresh()
   }
 
+  // ── Horizontal swipe to jump days ───────────────────────────────────────
+  // Track starting touch + only react when the gesture is clearly horizontal
+  // (so vertical scrolling and pull-to-refresh keep working).
+  function handleSwipeStart(e) {
+    const t = e.touches[0]
+    swipeStart.current = { x: t.clientX, y: t.clientY, locked: null }
+    setSwipeDx(0)
+  }
+  function handleSwipeMove(e) {
+    const s = swipeStart.current
+    if (!s) return
+    const t = e.touches[0]
+    const dx = t.clientX - s.x
+    const dy = t.clientY - s.y
+    if (s.locked === null) {
+      // Decide direction once we've moved at least ~10px
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return
+      s.locked = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v'
+    }
+    if (s.locked !== 'h') return
+    // Don't allow swiping forward past today
+    const clamped = (selectedDate >= today && dx < 0) ? Math.max(dx, -20) : dx
+    setSwipeDx(Math.max(-120, Math.min(120, clamped)))
+  }
+  function handleSwipeEnd() {
+    const s = swipeStart.current
+    swipeStart.current = null
+    const dx = swipeDx
+    setSwipeDx(0)
+    if (!s || s.locked !== 'h') return
+    if (dx <= -60) goDay(1)        // swipe left → forward (next day)
+    else if (dx >= 60) goDay(-1)   // swipe right → back (previous day)
+  }
+
   return (
     <PullToRefresh onRefresh={handlePullRefresh} className="flex flex-col h-full overflow-y-auto scroll-touch pb-4">
+    <div
+      onTouchStart={handleSwipeStart}
+      onTouchMove={handleSwipeMove}
+      onTouchEnd={handleSwipeEnd}
+      onTouchCancel={handleSwipeEnd}
+      style={{
+        transform: swipeDx ? `translateX(${swipeDx * 0.5}px)` : undefined,
+        transition: swipeDx ? 'none' : 'transform 0.2s',
+      }}
+    >
 
       {/* Header with date picker */}
       <div className="px-4 pb-2 pt-safe">
@@ -159,6 +207,14 @@ export default function Dashboard({ refreshKey, onRefresh }) {
             className="p-1.5 rounded-lg hover:bg-cream-200 dark:hover:bg-pine-800 text-cream-500 dark:text-pine-400 active:scale-90 transition-all disabled:opacity-30"
           >
             <ChevronRight size={16} />
+          </button>
+
+          <button
+            onClick={() => setShowCalendar(true)}
+            aria-label="Open calendar"
+            className="p-1.5 rounded-lg hover:bg-cream-200 dark:hover:bg-pine-800 text-cream-500 dark:text-pine-400 active:scale-90 transition-all flex-shrink-0"
+          >
+            <CalendarIcon size={16} />
           </button>
 
           {selectedDate !== today && (
@@ -299,7 +355,8 @@ export default function Dashboard({ refreshKey, onRefresh }) {
             />
             <ReferenceLine y={goals.proteinG} stroke="#60a5fa" strokeDasharray="4 3" strokeOpacity={0.5} />
             <Line type="monotone" dataKey="protein" stroke="#60a5fa" strokeWidth={2}
-              dot={{ fill: '#60a5fa', r: 3 }} activeDot={{ r: 5 }} />
+              dot={{ fill: '#60a5fa', r: 3 }} activeDot={{ r: 5 }}
+              connectNulls />
           </LineChart>
         </ResponsiveContainer>
       </section>
@@ -340,7 +397,144 @@ export default function Dashboard({ refreshKey, onRefresh }) {
           )}
         </section>
       )}
+    </div>
+
+      {showCalendar && (
+        <CalendarModal
+          today={today}
+          selectedDate={selectedDate}
+          goals={goals}
+          resetHour={getSettings().resetHour ?? 2}
+          onSelect={d => { setSelectedDate(d); setShowCalendar(false) }}
+          onClose={() => setShowCalendar(false)}
+        />
+      )}
     </PullToRefresh>
+  )
+}
+
+// ── Calendar modal ─────────────────────────────────────────────────────────
+function CalendarModal({ today, selectedDate, goals, resetHour, onSelect, onClose }) {
+  // Anchor the visible month on the selected date
+  const [viewYear,  setViewYear]  = useState(() => Number(selectedDate.slice(0, 4)))
+  const [viewMonth, setViewMonth] = useState(() => Number(selectedDate.slice(5, 7)) - 1)
+
+  // Per-day calorie totals across all meals (computed once)
+  const dayCalories = useMemo(() => {
+    const map = {}
+    getMeals().forEach(m => {
+      if (m.status === 'analyzing' || !m.analysis) return
+      const k = getDateKey(m.timestamp, resetHour)
+      map[k] = (map[k] || 0) + (m.analysis.totals?.calories || 0)
+    })
+    return map
+  }, [resetHour])
+
+  function shiftMonth(delta) {
+    const d = new Date(viewYear, viewMonth + delta, 1)
+    setViewYear(d.getFullYear())
+    setViewMonth(d.getMonth())
+  }
+
+  const monthName  = new Date(viewYear, viewMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  const firstDow   = new Date(viewYear, viewMonth, 1).getDay()      // 0=Sun
+  const daysInMo   = new Date(viewYear, viewMonth + 1, 0).getDate()
+  const goalCal    = goals?.calories || 0
+
+  // Build a flat 6×7 grid (some leading/trailing slots are empty)
+  const cells = []
+  for (let i = 0; i < firstDow; i++) cells.push(null)
+  for (let d = 1; d <= daysInMo; d++) cells.push(d)
+
+  const isFutureMonth = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-01` > today
+
+  return (
+    <div className="fixed inset-0 z-[9000] bg-black/50 flex items-end sm:items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+      <div
+        onClick={e => e.stopPropagation()}
+        className="w-full max-w-md rounded-2xl bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800 p-4 shadow-xl"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between mb-3">
+          <button
+            onClick={() => shiftMonth(-1)}
+            className="p-1.5 rounded-lg hover:bg-cream-200 dark:hover:bg-pine-800 text-cream-500 dark:text-pine-400 active:scale-90 transition-all"
+            aria-label="Previous month"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <p className="text-sm font-semibold text-pine-900 dark:text-cream-100">{monthName}</p>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => shiftMonth(1)}
+              disabled={isFutureMonth}
+              className="p-1.5 rounded-lg hover:bg-cream-200 dark:hover:bg-pine-800 text-cream-500 dark:text-pine-400 active:scale-90 transition-all disabled:opacity-30"
+              aria-label="Next month"
+            >
+              <ChevronRight size={16} />
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-cream-200 dark:hover:bg-pine-800 text-cream-500 dark:text-pine-400 active:scale-90 transition-all"
+              aria-label="Close calendar"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Day-of-week header */}
+        <div className="grid grid-cols-7 gap-1 mb-1">
+          {['S','M','T','W','T','F','S'].map((d, i) => (
+            <div key={i} className="text-center text-[10px] font-semibold uppercase tracking-wider text-cream-500 dark:text-pine-400 py-1">
+              {d}
+            </div>
+          ))}
+        </div>
+
+        {/* Day cells */}
+        <div className="grid grid-cols-7 gap-1">
+          {cells.map((d, i) => {
+            if (d === null) return <div key={i} />
+            const key = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+            const cal = dayCalories[key] || 0
+            const isFuture   = key > today
+            const isToday    = key === today
+            const isSelected = key === selectedDate
+            const hasMeals   = cal > 0
+            // Color the dot by goal proximity
+            const dotColor = !hasMeals
+              ? null
+              : cal > goalCal * 1.2
+                ? 'bg-red-400'
+                : cal >= goalCal * 0.85
+                  ? 'bg-emerald-400'
+                  : 'bg-amber-400'
+            return (
+              <button
+                key={i}
+                onClick={() => !isFuture && onSelect(key)}
+                disabled={isFuture}
+                className={`relative aspect-square flex flex-col items-center justify-center rounded-lg text-xs transition-all active:scale-90
+                  ${isSelected
+                    ? 'bg-pine-500 dark:bg-pine-400 text-white dark:text-pine-950 font-bold'
+                    : isToday
+                      ? 'ring-1 ring-pine-400 text-pine-700 dark:text-cream-200 font-semibold'
+                      : isFuture
+                        ? 'text-cream-300 dark:text-pine-700'
+                        : 'text-pine-700 dark:text-cream-200 hover:bg-cream-100 dark:hover:bg-pine-800'
+                  }`}
+              >
+                <span>{d}</span>
+                {dotColor && !isSelected && (
+                  <span className={`absolute bottom-1 w-1 h-1 rounded-full ${dotColor}`} />
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
   )
 }
 

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { v4 as uuidv4 } from 'uuid'
 import { Camera, Mic, MicOff, FileText, X, Sparkles, Loader, ScanBarcode } from 'lucide-react'
 import { compressImage, makeThumbnail } from '../utils/imageUtils.js'
-import { analyzeMeal } from '../services/analyzer.js'
+import { analyzeMeal, isNetworkError, markInFlight, unmarkInFlight } from '../services/analyzer.js'
 import { saveMeal, savePendingData, updateMeal, clearPendingData, getSettings } from '../services/storage.js'
 import {
   startListening, isSpeechSupported,
@@ -279,6 +279,7 @@ export default function LogScreen({ onMealSubmitted }) {
     setIsLoading(false)
     onMealSubmitted()
 
+    markInFlight(mealId)
     try {
       const analysis = await analyzeMeal({
         foodImage:  foodImage  || null,
@@ -288,10 +289,25 @@ export default function LogScreen({ onMealSubmitted }) {
       updateMeal(mealId, { analysis, status: 'done' })
       clearPendingData(mealId)
     } catch (err) {
-      hapticError()
-      updateMeal(mealId, { status: 'error', errorMessage: friendlyError(err) })
-      // Always preserve pending data on failure so the user can retry with the
-      // original photo + note. It's cleared only on successful analysis.
+      // Network failures are usually iOS suspending the page or a brief
+      // wifi drop — keep the meal in 'interrupted' so App.jsx can quietly
+      // resume the analysis the next time the app comes into focus.
+      if (isNetworkError(err)) {
+        updateMeal(mealId, {
+          status: 'interrupted',
+          errorMessage: 'Paused — will resume when the connection is back.',
+        })
+        // Nudge the auto-resume to pick this up immediately if we're online
+        // (the page may have just come back from suspend).
+        window.dispatchEvent(new Event('ft-resume-analyses'))
+      } else {
+        hapticError()
+        updateMeal(mealId, { status: 'error', errorMessage: friendlyError(err) })
+      }
+      // Pending data is preserved on failure so the user (or auto-resume)
+      // can retry with the original photo + note.
+    } finally {
+      unmarkInFlight(mealId)
     }
   }
 

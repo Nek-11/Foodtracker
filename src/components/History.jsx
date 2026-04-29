@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import {
   ClipboardList, ChevronDown, ChevronUp, Trash2, RefreshCw,
   Pencil, Check, X, AlertTriangle, Loader, Search, SlidersHorizontal,
@@ -7,7 +8,7 @@ import {
 import { hapticLight, hapticSuccess, hapticError } from '../utils/haptics.js'
 import { friendlyError } from '../utils/errorMessages.js'
 import { getMeals, deleteMeal, saveMeal, updateMeal, getPendingData, clearPendingData, getSettings } from '../services/storage.js'
-import { analyzeMeal, reanalyzeMeal } from '../services/analyzer.js'
+import { analyzeMeal, reanalyzeMeal, markInFlight, unmarkInFlight } from '../services/analyzer.js'
 import {
   fmt, formatDate, formatTime, MACRO_LABELS,
   getMealCategory, getMealTypes, CATEGORY_STYLES, ALL_MEAL_TYPES,
@@ -54,6 +55,7 @@ export default function History({ refreshKey, onRefresh }) {
   const [filterNutrition,    setFilterNutrition]    = useState({ proteinG: '', calories: '', fatG: '', sodiumMg: '' })
   const [showNutritionFilter,setShowNutritionFilter]= useState(false)
   const [visibleDaysCount,   setVisibleDaysCount]   = useState(INITIAL_DAYS_SHOWN)
+  const [drag,               setDrag]               = useState(null) // { meal, x, y, hoveredDate }
 
   const undoTimerRef = useRef(null)
   const settings   = getSettings()
@@ -83,6 +85,7 @@ export default function History({ refreshKey, onRefresh }) {
     if (!canFreshAnalyze && !canReanalyze) return
 
     hapticLight()
+    markInFlight(meal.id)
     updateMeal(meal.id, { status: 'analyzing', errorMessage: null })
     refresh()
     try {
@@ -108,6 +111,8 @@ export default function History({ refreshKey, onRefresh }) {
     } catch (err) {
       hapticError()
       updateMeal(meal.id, { status: 'error', errorMessage: friendlyError(err) })
+    } finally {
+      unmarkInFlight(meal.id)
     }
     refresh()
     if (onRefresh) onRefresh()
@@ -140,6 +145,7 @@ export default function History({ refreshKey, onRefresh }) {
     // Always include all available context: new override + saved notes + original log note
     const contextNote = [overrideNote, meal.userNotes, meal.note].filter(Boolean).join('\n')
     hapticLight()
+    markInFlight(meal.id)
     updateMeal(meal.id, { status: 'analyzing', errorMessage: null })
     refresh()
     try {
@@ -155,6 +161,8 @@ export default function History({ refreshKey, onRefresh }) {
     } catch (err) {
       hapticError()
       updateMeal(meal.id, { status: 'error', errorMessage: friendlyError(err) })
+    } finally {
+      unmarkInFlight(meal.id)
     }
     refresh()
     if (onRefresh) onRefresh()
@@ -180,6 +188,42 @@ export default function History({ refreshKey, onRefresh }) {
     setFilterTypes(prev =>
       prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
     )
+  }
+
+  // ── Long-press drag to move a meal to another day ────────────────────────
+  function handleDragStart(meal, x, y) {
+    hapticLight()
+    document.body.style.touchAction = 'none'
+    setDrag({ meal, x, y, hoveredDate: null })
+  }
+  function handleDragMove(x, y) {
+    setDrag(d => {
+      if (!d) return d
+      const els = document.elementsFromPoint(x, y) || []
+      const headerEl = els.find(el => el?.dataset?.dateHeader)
+      return { ...d, x, y, hoveredDate: headerEl?.dataset?.dateHeader || null }
+    })
+  }
+  function handleDragEnd() {
+    setDrag(d => {
+      document.body.style.touchAction = ''
+      if (!d) return null
+      if (d.hoveredDate) {
+        const currentDate = getDateKeyLocal(d.meal.timestamp, resetHour)
+        if (d.hoveredDate !== currentDate) {
+          // Preserve time-of-day, change just the date
+          const oldTs = new Date(d.meal.timestamp)
+          const [yr, mo, day] = d.hoveredDate.split('-').map(Number)
+          const newTs = new Date(oldTs)
+          newTs.setFullYear(yr, mo - 1, day)
+          updateMeal(d.meal.id, { timestamp: newTs.toISOString() })
+          hapticSuccess()
+          refresh()
+          if (onRefresh) onRefresh()
+        }
+      }
+      return null
+    })
   }
 
   // ── Filtering ─────────────────────────────────────────────────────────────
@@ -341,31 +385,43 @@ export default function History({ refreshKey, onRefresh }) {
         <p className="text-xs text-cream-400 dark:text-pine-500 mt-2 text-center px-4">No meals match the current filters</p>
       )}
 
-      {visibleGroups.map(([date, dateMeals]) => (
-        <section key={date} className="mx-4 mt-4">
-          <div className="flex items-center justify-between mb-2 px-1">
-            <h2 className="text-sm font-semibold text-cream-600 dark:text-pine-400">{formatDate(date)}</h2>
-            <span className="text-xs text-cream-400 dark:text-pine-500">
-              {fmt(dateMeals.reduce((s, m) => s + (m.analysis?.totals?.calories || 0), 0))} kcal
-            </span>
-          </div>
-          <div className="space-y-2">
-            {dateMeals.map(meal => (
-              <MealCard
-                key={meal.id}
-                meal={meal}
-                timeSlots={timeSlots}
-                isExpanded={expanded === meal.id}
-                onToggle={() => setExpanded(expanded === meal.id ? null : meal.id)}
-                onDelete={() => handleDelete(meal.id)}
-                onRetry={() => handleRetry(meal)}
-                onReanalyze={(note) => handleReanalyze(meal, note)}
-                onSaveEdit={(updates) => handleSaveEdit(meal, updates)}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
+      {visibleGroups.map(([date, dateMeals]) => {
+        const isDropTarget = drag && drag.hoveredDate === date
+        return (
+          <section key={date} className="mx-4 mt-4">
+            <div
+              data-date-header={date}
+              className={`flex items-center justify-between mb-2 px-2 py-1 rounded-lg transition-colors ${
+                isDropTarget ? 'bg-pine-100 dark:bg-pine-700/40 ring-2 ring-pine-400' : ''
+              }`}
+            >
+              <h2 className="text-sm font-semibold text-cream-600 dark:text-pine-400 pointer-events-none">{formatDate(date)}</h2>
+              <span className="text-xs text-cream-400 dark:text-pine-500 pointer-events-none">
+                {fmt(dateMeals.reduce((s, m) => s + (m.analysis?.totals?.calories || 0), 0))} kcal
+              </span>
+            </div>
+            <div className="space-y-2">
+              {dateMeals.map(meal => (
+                <MealCard
+                  key={meal.id}
+                  meal={meal}
+                  timeSlots={timeSlots}
+                  isExpanded={expanded === meal.id}
+                  isDragging={drag?.meal?.id === meal.id}
+                  onToggle={() => setExpanded(expanded === meal.id ? null : meal.id)}
+                  onDelete={() => handleDelete(meal.id)}
+                  onRetry={() => handleRetry(meal)}
+                  onReanalyze={(note) => handleReanalyze(meal, note)}
+                  onSaveEdit={(updates) => handleSaveEdit(meal, updates)}
+                  onDragStart={handleDragStart}
+                  onDragMove={handleDragMove}
+                  onDragEnd={handleDragEnd}
+                />
+              ))}
+            </div>
+          </section>
+        )
+      })}
 
       {/* Load older days */}
       {hasOlderDays && (
@@ -378,6 +434,20 @@ export default function History({ refreshKey, onRefresh }) {
             Show {allGroups[visibleDaysCount] ? formatDate(allGroups[visibleDaysCount][0]) : 'older day'}
           </button>
         </div>
+      )}
+
+      {/* Drag ghost — follows finger while long-press dragging */}
+      {drag && createPortal(
+        <div
+          className="fixed pointer-events-none z-[9000] px-3 py-2 rounded-xl shadow-xl bg-pine-500 dark:bg-pine-400 text-white dark:text-pine-950 text-xs font-semibold max-w-[220px] truncate"
+          style={{ left: drag.x + 12, top: drag.y - 24 }}
+        >
+          {drag.meal.customName || drag.meal.analysis?.mealSummary || drag.meal.note || 'Meal'}
+          <div className="text-[10px] font-normal opacity-80 mt-0.5">
+            {drag.hoveredDate ? `Drop on ${formatDate(drag.hoveredDate)}` : 'Drag onto a day…'}
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* Undo delete toast */}
@@ -399,8 +469,72 @@ export default function History({ refreshKey, onRefresh }) {
 
 // ── MealCard ──────────────────────────────────────────────────────────────────
 
-function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, onReanalyze, onSaveEdit }) {
+function MealCard({ meal, timeSlots, isExpanded, isDragging, onToggle, onDelete, onRetry, onReanalyze, onSaveEdit, onDragStart, onDragMove, onDragEnd }) {
   const { analysis, thumbnail, timestamp, note, status, errorMessage, userNotes, _isMock } = meal
+
+  // Long-press drag detection. The button still toggles expansion on a quick
+  // tap; press-and-hold (~500ms) enters drag mode so the user can drop the
+  // card on another day's header to move the meal.
+  const longPressRef    = useRef(null)
+  const suppressClickRef = useRef(false)
+
+  function startLongPressTimer(t) {
+    longPressRef.current = {
+      timerId: setTimeout(() => {
+        if (longPressRef.current) {
+          longPressRef.current.dragging = true
+          onDragStart?.(meal, t.clientX, t.clientY)
+        }
+      }, 500),
+      startX: t.clientX,
+      startY: t.clientY,
+      dragging: false,
+    }
+  }
+
+  function handleCardTouchStart(e) {
+    if (!onDragStart) return
+    if (e.touches.length !== 1) return
+    startLongPressTimer(e.touches[0])
+  }
+
+  function handleCardTouchMove(e) {
+    const lp = longPressRef.current
+    if (!lp) return
+    const t = e.touches[0]
+    if (lp.dragging) {
+      onDragMove?.(t.clientX, t.clientY)
+      return
+    }
+    const dx = Math.abs(t.clientX - lp.startX)
+    const dy = Math.abs(t.clientY - lp.startY)
+    if (dx > 10 || dy > 10) {
+      clearTimeout(lp.timerId)
+      longPressRef.current = null
+    }
+  }
+
+  function handleCardTouchEnd() {
+    const lp = longPressRef.current
+    if (!lp) return
+    clearTimeout(lp.timerId)
+    if (lp.dragging) {
+      suppressClickRef.current = true
+      // Reset shortly — covers both the immediate click after touchend and
+      // any stale state if the click never fires.
+      setTimeout(() => { suppressClickRef.current = false }, 300)
+      onDragEnd?.()
+    }
+    longPressRef.current = null
+  }
+
+  function handleSummaryClick() {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      return
+    }
+    onToggle()
+  }
 
   const [isEditing,         setIsEditing]         = useState(false)
   const [editName,          setEditName]           = useState('')
@@ -568,6 +702,8 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
 
   return (
     <div className={`rounded-2xl overflow-hidden transition-all animate-fade-in ${
+      isDragging ? 'opacity-40 scale-[0.97]' : ''
+    } ${
       flagged
         ? 'ring-1 ring-amber-400/30'
         : isError || isInterrupted
@@ -575,8 +711,13 @@ function MealCard({ meal, timeSlots, isExpanded, onToggle, onDelete, onRetry, on
           : 'ring-1 ring-transparent'
     } bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800`}>
 
-      {/* Summary row */}
-      <button onClick={onToggle}
+      {/* Summary row — long-press to drag-and-drop onto another day */}
+      <button
+        onClick={handleSummaryClick}
+        onTouchStart={handleCardTouchStart}
+        onTouchMove={handleCardTouchMove}
+        onTouchEnd={handleCardTouchEnd}
+        onTouchCancel={handleCardTouchEnd}
         className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-cream-100 dark:active:bg-pine-800 transition-colors">
 
         {/* Thumbnail or icon */}

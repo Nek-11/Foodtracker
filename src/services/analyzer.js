@@ -5,11 +5,11 @@ import * as openai from './openai.js'
 // Hardcoded models — edit here to change, no UI toggle needed
 const CLAUDE_MODEL  = 'claude-sonnet-4-6'
 const OPENAI_MODEL  = 'gpt-5-mini'
-const REASONING_EFFORT = 'medium'
+const REASONING_EFFORT = 'low'
 
-// Claude extended thinking budget for "medium" effort
-const CLAUDE_BUDGET_TOKENS = 5000
-const CLAUDE_MAX_TOKENS    = 12000
+// Claude extended thinking budget for "low" effort
+const CLAUDE_BUDGET_TOKENS = 1024
+const CLAUDE_MAX_TOKENS    = 5000
 
 /** Thrown when no API key is configured — pending data is preserved so user can retry. */
 export class NoApiKeyError extends Error {
@@ -18,6 +18,27 @@ export class NoApiKeyError extends Error {
     this.name = 'NoApiKeyError'
   }
 }
+
+/**
+ * Test whether an error is a transient network failure (typical when iOS
+ * suspends the page during a phone-lock, the wifi blips, etc.). The caller
+ * should keep the meal in a "retryable" state instead of marking it failed.
+ */
+export function isNetworkError(err) {
+  if (!err) return false
+  if (err.name === 'NetworkError' || err.name === 'AbortError') return true
+  if (err instanceof TypeError) return true
+  const msg = (err.message || String(err)).toLowerCase()
+  return msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('load failed')
+}
+
+// In-memory set of meal IDs whose analyze() promise is still pending in this
+// JS context. Used by the auto-resume logic so it doesn't kick off a duplicate
+// fetch while the original is still running.
+const _inFlight = new Set()
+export function markInFlight(id)   { _inFlight.add(id) }
+export function unmarkInFlight(id) { _inFlight.delete(id) }
+export function isInFlight(id)     { return _inFlight.has(id) }
 
 function resolveParams(settings) {
   const provider = settings.provider || 'claude'
