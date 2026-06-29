@@ -57,14 +57,17 @@ export default function Dashboard({ refreshKey, onRefresh }) {
     // 7-day chart — always relative to today
     // Excluded days: bar chart shows them grayed at 0, line chart skips (null).
     const raw7 = getLast7DaysTotals()
-    const week = raw7.map(({ date, totals: t, excluded }) => ({
-      day: formatDate(date) === 'Today'
-        ? 'Today'
-        : new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' }),
-      calories: excluded ? 0 : fmt(t.calories),
-      protein:  excluded ? null : fmt(t.proteinG),
-      excluded,
-    }))
+    const week = raw7.map(({ date, totals: t, excluded }) => {
+      const effectivelyExcluded = excluded || t.calories === 0
+      return {
+        day: formatDate(date) === 'Today'
+          ? 'Today'
+          : new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' }),
+        calories: effectivelyExcluded ? 0 : fmt(t.calories),
+        protein:  effectivelyExcluded ? null : fmt(t.proteinG),
+        excluded: effectivelyExcluded,
+      }
+    })
     setWeekData(week)
 
     const active = raw7.filter(d => !d.excluded && d.totals.calories > 300)

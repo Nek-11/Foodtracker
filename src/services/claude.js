@@ -165,7 +165,7 @@ async function callClaude({ apiKey, model, reasoningEffort, budgetTokens, maxTok
   }
 
   if (useThinking) {
-    body.thinking = { type: 'enabled', budget_tokens }
+    body.thinking = { type: 'adaptive' }
   }
 
   const response = await fetch(CLAUDE_API_URL, {
