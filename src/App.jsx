@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Camera, BarChart2, ClipboardList, Settings as SettingsIcon, Sun, Moon, SunMoon, WifiOff } from 'lucide-react'
+import { Camera, BarChart2, ClipboardList, Settings as SettingsIcon, Sun, Moon, SunMoon, WifiOff, Lightbulb } from 'lucide-react'
 import LogScreen   from './components/LogScreen.jsx'
 import Dashboard   from './components/Dashboard.jsx'
 import History     from './components/History.jsx'
 import Settings    from './components/Settings.jsx'
+import Tips        from './components/Tips.jsx'
 import { getSettings, saveSettings, getMeals, updateMeal, cleanupOldThumbnails, getPendingData, clearPendingData } from './services/storage.js'
 import { analyzeMeal, isNetworkError, isInFlight, markInFlight, unmarkInFlight } from './services/analyzer.js'
+import { generateTips } from './services/tipsService.js'
 import { friendlyError } from './utils/errorMessages.js'
 
 function getEffectiveDark(theme) {
@@ -53,6 +55,11 @@ export default function App() {
     const settings = getSettings()
     const resetHour = settings.resetHour ?? 2
     cleanupOldThumbnails(resetHour)
+  }, [])
+
+  // Pre-generate tips for yesterday in the background on app mount
+  useEffect(() => {
+    generateTips().catch(() => {})
   }, [])
 
   // ── Auto-resume interrupted analyses ──────────────────────────────────────
@@ -147,6 +154,7 @@ export default function App() {
     { id: 'log',       label: 'Log',      Icon: Camera },
     { id: 'dashboard', label: 'Stats',    Icon: BarChart2 },
     { id: 'history',   label: 'History',  Icon: ClipboardList },
+    { id: 'tips',      label: 'Tips',     Icon: Lightbulb },
     { id: 'settings',  label: 'Settings', Icon: SettingsIcon },
   ]
 
@@ -172,7 +180,7 @@ export default function App() {
 
       {/* Main content */}
       <main className="flex-1 overflow-hidden relative">
-        {['log', 'dashboard', 'history', 'settings'].map(tab => (
+        {['log', 'dashboard', 'history', 'tips', 'settings'].map(tab => (
           <div
             key={tab}
             className={`absolute inset-0 transition-opacity duration-200 ${
@@ -182,6 +190,7 @@ export default function App() {
             {tab === 'log'       && <LogScreen  onMealSubmitted={handleMealSubmitted} />}
             {tab === 'dashboard' && <Dashboard  refreshKey={refreshKey} onRefresh={handleRefresh} />}
             {tab === 'history'   && <History    refreshKey={refreshKey} onRefresh={handleRefresh} />}
+            {tab === 'tips'      && <Tips       refreshKey={refreshKey} />}
             {tab === 'settings'  && <Settings   onRefresh={handleRefresh} />}
           </div>
         ))}

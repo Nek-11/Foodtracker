@@ -27,6 +27,27 @@ export function progressBgColor(value, goal) {
   return 'bg-red-500'
 }
 
+// Symmetric red→green gradient centered at 100% of goal.
+// Used for macro values in the Dashboard — mirrors the calorie colour logic
+// but also penalises being well under goal (red at <55%, orange, amber, green at ~100%).
+export function macroProgressColor(value, goal) {
+  if (!goal) return 'text-pine-400'
+  const d = Math.abs((value / goal) * 100 - 100)
+  if (d <= 10) return 'text-emerald-400'
+  if (d <= 25) return 'text-amber-400'
+  if (d <= 45) return 'text-orange-400'
+  return 'text-red-400'
+}
+
+export function macroProgressBgColor(value, goal) {
+  if (!goal) return 'bg-pine-600'
+  const d = Math.abs((value / goal) * 100 - 100)
+  if (d <= 10) return 'bg-emerald-500'
+  if (d <= 25) return 'bg-amber-500'
+  if (d <= 45) return 'bg-orange-500'
+  return 'bg-red-500'
+}
+
 export function formatDate(dateStr) {
   const today = new Date().toISOString().slice(0, 10)
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)

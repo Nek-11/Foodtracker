@@ -820,10 +820,10 @@ function MealCard({ meal, timeSlots, isExpanded, isDragging, onToggle, onDelete,
           {analysis && !isEditing && (
             <>
               <div className="grid grid-cols-3 gap-2">
-                {MACRO_LABELS.map(({ key, label, unit, color }) => (
+                {MACRO_LABELS.map(({ key, label, unit }) => (
                   <div key={key} className="text-center rounded-xl py-2 bg-cream-100 dark:bg-pine-800">
                     <p className="text-xs text-cream-500 dark:text-pine-400">{label}</p>
-                    <p className="text-sm font-bold mt-0.5" style={{ color }}>
+                    <p className="text-sm font-bold mt-0.5 text-cream-900 dark:text-pine-100">
                       {fmt(totals[key])}<span className="text-xs text-cream-400 dark:text-pine-500 ml-0.5 font-normal">{unit}</span>
                     </p>
                   </div>

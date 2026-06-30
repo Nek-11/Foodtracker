@@ -5,6 +5,7 @@ const KEYS = {
   GOALS:    'ft_goals',
   SETTINGS: 'ft_settings',
   PENDING:  'ft_pending',   // { [mealId]: { foodImage, labelImage, note } }
+  TIPS:     'ft_tips',      // { [YYYY-MM-DD]: { daily, weeklyInsight, generatedAt } }
 }
 
 // FIFO rolling window: when a new meal is added at this limit, the oldest is dropped.
@@ -374,4 +375,26 @@ export function importHistory(file) {
     reader.onerror = () => reject(new Error('Failed to read file.'))
     reader.readAsText(file)
   })
+}
+
+// ─── Tips ────────────────────────────────────────────────────────────────────
+
+export function getTips(dateKey) {
+  try {
+    const all = JSON.parse(localStorage.getItem(KEYS.TIPS) || '{}')
+    return all[dateKey] || null
+  } catch {
+    return null
+  }
+}
+
+export function saveTips(dateKey, data) {
+  try {
+    const all = JSON.parse(localStorage.getItem(KEYS.TIPS) || '{}')
+    all[dateKey] = { ...data, generatedAt: new Date().toISOString() }
+    // Keep only the last 14 date keys
+    const keys = Object.keys(all).sort().reverse()
+    keys.slice(14).forEach(k => delete all[k])
+    localStorage.setItem(KEYS.TIPS, JSON.stringify(all))
+  } catch {}
 }

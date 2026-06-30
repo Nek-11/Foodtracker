@@ -6,7 +6,7 @@ import {
   Tooltip, ReferenceLine, BarChart, Bar, Cell
 } from 'recharts'
 import { getDailyTotals, getLast7DaysTotals, getGoals, getMeals, getMealsByDate, getSettings, getTodayKey, setDayExcluded, getDateKey } from '../services/storage.js'
-import { fmt, pct, progressBgColor, formatDate, MACRO_LABELS, getMealTypes, CATEGORY_STYLES } from '../utils/nutritionUtils.js'
+import { fmt, pct, progressBgColor, formatDate, MACRO_LABELS, getMealTypes, CATEGORY_STYLES, macroProgressColor, macroProgressBgColor } from '../utils/nutritionUtils.js'
 import { EyeOff, Eye } from 'lucide-react'
 import PullToRefresh from './PullToRefresh.jsx'
 
@@ -275,7 +275,7 @@ export default function Dashboard({ refreshKey, onRefresh }) {
       {/* Macros grid */}
       <section className="mx-4 mt-3">
         <div className="grid grid-cols-2 gap-2">
-          {MACRO_LABELS.map(({ key, label, unit, color }) => {
+          {MACRO_LABELS.map(({ key, label, unit }) => {
             const val  = totals[key] || 0
             const goal = goals[key]  || 1
             const p    = Math.min(100, pct(val, goal))
@@ -283,11 +283,11 @@ export default function Dashboard({ refreshKey, onRefresh }) {
               <div key={key} className="rounded-2xl px-4 py-3 bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800">
                 <p className="text-xs text-cream-500 dark:text-pine-400 mb-1">{label}</p>
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-xl font-bold" style={{ color }}>{fmt(val)}</span>
+                  <span className={`text-xl font-bold ${macroProgressColor(val, goal)}`}>{fmt(val)}</span>
                   <span className="text-xs text-cream-400 dark:text-pine-500">/ {fmt(goal)}{unit}</span>
                 </div>
                 <div className="h-1.5 rounded-full overflow-hidden mt-2 bg-cream-200 dark:bg-pine-800">
-                  <div className="h-full rounded-full transition-all" style={{ width: `${p}%`, backgroundColor: color }} />
+                  <div className={`h-full rounded-full transition-all ${macroProgressBgColor(val, goal)}`} style={{ width: `${p}%` }} />
                 </div>
               </div>
             )
