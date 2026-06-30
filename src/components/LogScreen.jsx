@@ -403,7 +403,7 @@ export default function LogScreen({ onMealSubmitted }) {
       {/* Header */}
       <div className="px-4 pb-2 pt-safe">
         <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">Log a Meal</h1>
-        <p className="text-sm mt-0.5 text-cream-500 dark:text-pine-400">Photo, barcode, voice note, or a mix</p>
+        <p className="text-sm mt-0.5 text-cream-500 dark:text-pine-400">Photo, voice note, or description</p>
       </div>
 
       {error && (
@@ -469,53 +469,38 @@ export default function LogScreen({ onMealSubmitted }) {
         <input id="food-input" ref={foodInputRef} type="file" accept="image/*" capture="environment" onChange={handleFoodImage} />
       </section>
 
-      {/* Barcode — always available, even after a photo is added */}
-      {!scannedProduct && (
-        <section className="mx-4 mt-3">
+      {/* Secondary inputs — compact chip row */}
+      <div className="mx-4 mt-3 flex gap-2 flex-wrap">
+        {!scannedProduct && (
           <button
             onClick={openBarcodeScanner}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800 cursor-pointer active:bg-cream-100 dark:active:bg-pine-800 transition-colors text-left"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800 text-xs font-medium text-pine-600 dark:text-pine-300 active:bg-cream-100 dark:active:bg-pine-800 transition-colors"
           >
-            <div className="w-10 h-10 rounded-xl bg-cream-200 dark:bg-pine-800 flex items-center justify-center flex-shrink-0">
-              <ScanBarcode size={18} className="text-cream-500 dark:text-pine-400" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-pine-700 dark:text-cream-300">Scan a barcode</p>
-              <p className="text-xs text-cream-400 dark:text-pine-500">Adds exact nutrition from the database</p>
-            </div>
+            <ScanBarcode size={13} />
+            Scan barcode
           </button>
-        </section>
-      )}
-
-      {/* Nutrition label — shown always (not only after food photo) */}
-      <section className="mx-4 mt-3">
+        )}
         {labelImage ? (
-          <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800">
-            <img src={labelImage} alt="Label" className="w-12 h-12 object-cover rounded-lg" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-pine-800 dark:text-cream-200">Nutrition label added</p>
-              <p className="text-xs text-cream-500 dark:text-pine-400">AI will use exact label values</p>
-            </div>
-            <button onClick={() => { setLabelImage(null); if (labelInputRef.current) labelInputRef.current.value = '' }}
-              className="text-cream-400 dark:text-pine-500 hover:text-pine-500 dark:hover:text-pine-300">
-              <X size={18} />
+          <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-pine-100 dark:bg-pine-800 border border-pine-200 dark:border-pine-700 text-xs text-pine-700 dark:text-pine-300">
+            <FileText size={13} className="flex-shrink-0 text-pine-500" />
+            <span>Label added</span>
+            <button
+              onClick={() => { setLabelImage(null); if (labelInputRef.current) labelInputRef.current.value = '' }}
+              className="text-pine-400 hover:text-pine-600 dark:hover:text-pine-200 ml-0.5 flex-shrink-0"
+            >
+              <X size={12} />
             </button>
           </div>
         ) : (
           <label htmlFor="label-input"
-            className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800 cursor-pointer active:bg-cream-100 dark:active:bg-pine-800 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800 text-xs font-medium text-pine-600 dark:text-pine-300 active:bg-cream-100 dark:active:bg-pine-800 transition-colors cursor-pointer"
           >
-            <div className="w-10 h-10 rounded-xl bg-cream-200 dark:bg-pine-800 flex items-center justify-center flex-shrink-0">
-              <FileText size={18} className="text-cream-500 dark:text-pine-400" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-pine-700 dark:text-cream-300">Add nutrition label</p>
-              <p className="text-xs text-cream-400 dark:text-pine-500">For packaged food — optional</p>
-            </div>
+            <FileText size={13} />
+            Nutrition label
           </label>
         )}
-        <input id="label-input" ref={labelInputRef} type="file" accept="image/*" capture="environment" onChange={handleLabelImage} />
-      </section>
+      </div>
+      <input id="label-input" ref={labelInputRef} type="file" accept="image/*" capture="environment" onChange={handleLabelImage} />
 
       {/* Voice / text note */}
       <section className="mx-4 mt-3">

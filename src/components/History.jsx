@@ -540,10 +540,8 @@ function MealCard({ meal, timeSlots, isExpanded, isDragging, onToggle, onDelete,
   const [editName,          setEditName]           = useState('')
   const [editTypes,         setEditTypes]          = useState([])
   const [editNote,          setEditNote]           = useState('')
-  const [selectedAnswers,   setSelectedAnswers]    = useState({})
   const [isNoteRecording,   setIsNoteRecording]    = useState(false)
   const [isNoteTranscribing,setIsNoteTranscribing] = useState(false)
-  const [showAiNotes,       setShowAiNotes]        = useState(false)
   const [editDateTime,      setEditDateTime]       = useState('')
 
   const noteWhisperStopRef    = useRef(null)
@@ -603,16 +601,11 @@ function MealCard({ meal, timeSlots, isExpanded, isDragging, onToggle, onDelete,
   }
 
   const totals    = analysis?.totals || {}
-  const flagged   = analysis?.flagged
   const mealTypes = getMealTypes(meal, timeSlots)
 
   const isAnalyzing   = status === 'analyzing'
   const isInterrupted = status === 'interrupted'
   const isError       = status === 'error'
-  // Retry works if we have either the original log data (pending) OR a previous
-  // analysis to re-run against. Previously this required pending, so network-
-  // error failures (which never had pending cleared) showed no retry button
-  // because LogScreen used to clear pending on error.
   const canRetry      = (isInterrupted || isError) && (!!getPendingData(meal.id) || !!analysis)
 
   function openEdit() {
@@ -665,50 +658,17 @@ function MealCard({ meal, timeSlots, isExpanded, isDragging, onToggle, onDelete,
     })
   }
 
-  function toggleAnswer(qIndex, opt) {
-    setSelectedAnswers(prev => {
-      const current = prev[qIndex]
-      if (current === opt) {
-        const next = { ...prev }
-        delete next[qIndex]
-        return next
-      }
-      return { ...prev, [qIndex]: opt }
-    })
-  }
 
-  function handleReanalyzeWithAnswers() {
-    const answers = Object.entries(selectedAnswers)
-      .map(([qIdx, opt]) => {
-        const rawQ = analysis.questions[qIdx]
-        const q = normalizeQuestion(rawQ)
-        return `${q.text} → ${opt}`
-      })
-      .join('\n')
-    setSelectedAnswers({})
-    onReanalyze(answers)
-  }
-
-  // Normalize questions for both old (string) and new (object) formats
-  function normalizeQuestion(q) {
-    if (typeof q === 'string') {
-      return { text: q, options: parseQuestionOptions(q) }
-    }
-    return q
-  }
 
   const displayName = meal.customName || analysis?.mealSummary || note || 'Unnamed meal'
-  const hasSelectedAnswers = Object.keys(selectedAnswers).length > 0
 
   return (
     <div className={`rounded-2xl overflow-hidden transition-all animate-fade-in ${
       isDragging ? 'opacity-40 scale-[0.97]' : ''
     } ${
-      flagged
-        ? 'ring-1 ring-amber-400/30'
-        : isError || isInterrupted
-          ? 'ring-1 ring-red-400/30'
-          : 'ring-1 ring-transparent'
+      isError || isInterrupted
+        ? 'ring-1 ring-red-400/30'
+        : 'ring-1 ring-transparent'
     } bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800`}>
 
       {/* Summary row — long-press to drag-and-drop onto another day */}
@@ -753,7 +713,6 @@ function MealCard({ meal, timeSlots, isExpanded, isDragging, onToggle, onDelete,
                 <p className="text-sm font-medium text-pine-900 dark:text-cream-100 truncate flex-1 min-w-0">
                   {displayName}
                 </p>
-                {flagged && <AlertTriangle size={12} className="text-amber-400 flex-shrink-0" />}
                 {_isMock  && <span className="text-[10px] text-amber-500 dark:text-amber-400 flex-shrink-0">demo</span>}
               </div>
               <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
@@ -841,64 +800,6 @@ function MealCard({ meal, timeSlots, isExpanded, isDragging, onToggle, onDelete,
                 </div>
               )}
 
-              {/* Clarifying questions — select answers, then hit Reanalyze */}
-              {flagged && analysis.questions?.length > 0 && (
-                <div className="rounded-xl p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50 space-y-3">
-                  <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">
-                    Select your answers, then tap Reanalyze
-                  </p>
-                  {analysis.questions.map((rawQ, i) => {
-                    const q = normalizeQuestion(rawQ)
-                    return (
-                      <div key={i} className="space-y-1.5">
-                        <p className="text-xs text-amber-700 dark:text-amber-300">{q.text}</p>
-                        <div className="flex gap-2 flex-wrap">
-                          {q.options.map(opt => (
-                            <button
-                              key={opt}
-                              onClick={() => toggleAnswer(i, opt)}
-                              className={`px-3 py-1 rounded-full text-xs font-medium border active:scale-95 transition-all ${
-                                selectedAnswers[i] === opt
-                                  ? 'bg-amber-500 dark:bg-amber-600 text-white border-amber-600 dark:border-amber-500 ring-1 ring-amber-400/40'
-                                  : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700/60 hover:bg-amber-200 dark:hover:bg-amber-900/60'
-                              }`}>
-                              {opt}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })}
-                  {hasSelectedAnswers && (
-                    <button
-                      onClick={handleReanalyzeWithAnswers}
-                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold active:scale-95 transition-all bg-pine-500 dark:bg-pine-400 text-white dark:text-pine-950 mt-1">
-                      <RefreshCw size={12} /> Reanalyze
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* AI notes (informational tips) — collapsed by default */}
-              {analysis.notes?.length > 0 && (
-                <div>
-                  <button
-                    onClick={() => setShowAiNotes(v => !v)}
-                    className="flex items-center gap-1 text-[11px] font-medium text-cream-500 dark:text-pine-400 hover:text-pine-500 dark:hover:text-pine-300">
-                    {showAiNotes ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                    {showAiNotes ? 'Hide AI tips' : `Show AI tips (${analysis.notes.length})`}
-                  </button>
-                  {showAiNotes && (
-                    <div className="mt-2 space-y-1 animate-fade-in">
-                      {analysis.notes.map((n, i) => (
-                        <p key={i} className="text-xs text-cream-500 dark:text-pine-400 italic">
-                          {n}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </>
           )}
 
@@ -1058,14 +959,4 @@ function toLocalDateTimeInputValue(iso) {
  * Extract tap-options from old-format string questions like "Was it fried or baked?"
  * Fallback for meals analyzed before the structured question format.
  */
-function parseQuestionOptions(question) {
-  const match = question.match(/\b([\w\s]{2,20})\s+or\s+([\w\s]{2,20}?)[\?.,]?\s*$/i)
-  if (match) {
-    const a = match[1].trim().replace(/^(was it|is it|were they|is this)\s+/i, '')
-    const b = match[2].trim()
-    if (a && b && a.split(' ').length <= 3 && b.split(' ').length <= 3) {
-      return [a[0].toUpperCase() + a.slice(1), b[0].toUpperCase() + b.slice(1)]
-    }
-  }
-  return ['Yes', 'No']
-}
+

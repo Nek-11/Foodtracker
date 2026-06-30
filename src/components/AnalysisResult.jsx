@@ -1,43 +1,7 @@
-import { useState } from 'react'
 import { fmt, MACRO_LABELS } from '../utils/nutritionUtils.js'
-import { startListening, isSpeechSupported } from '../services/speech.js'
-import { useRef } from 'react'
 
-export default function AnalysisResult({ analysis, thumbnail, onSave, onDiscard, onReanalyze, error }) {
-  const [clarNote, setClarNote] = useState('')
-  const [isRecording, setIsRecording] = useState(false)
-  const stopRef = useRef(null)
-
-  const { items = [], totals = {}, confidence, flagged, questions = [], mealSummary } = analysis
-
-  function toggleRecording() {
-    if (isRecording) {
-      if (stopRef.current) stopRef.current()
-      stopRef.current = null
-      setIsRecording(false)
-      return
-    }
-    setIsRecording(true)
-    let accumulated = clarNote ? clarNote + ' ' : ''
-    const stop = startListening(
-      (text, isFinal) => {
-        if (isFinal) {
-          accumulated += text + ' '
-          setClarNote(accumulated.trim())
-        } else {
-          setClarNote((accumulated + text).trim())
-        }
-      },
-      () => setIsRecording(false)
-    )
-    stopRef.current = stop
-  }
-
-  function handleReanalyze() {
-    if (!clarNote.trim()) return
-    onReanalyze(clarNote.trim())
-    setClarNote('')
-  }
+export default function AnalysisResult({ analysis, thumbnail, onSave, onDiscard, error }) {
+  const { items = [], totals = {}, confidence, mealSummary } = analysis
 
   const confidenceConfig = {
     high:   { color: 'text-emerald-400', label: 'High confidence' },
@@ -114,56 +78,6 @@ export default function AnalysisResult({ analysis, thumbnail, onSave, onDiscard,
           ))}
         </div>
       </section>
-
-      {/* Flagged / uncertainty section */}
-      {flagged && questions.length > 0 && (
-        <section className="mx-4 mt-4 bg-amber-900/30 border border-amber-700/50 rounded-2xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <svg className="w-4 h-4 text-amber-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-            </svg>
-            <p className="text-sm font-semibold text-amber-300">Claude has some questions</p>
-          </div>
-          <ul className="space-y-1 mb-4">
-            {questions.map((q, i) => (
-              <li key={i} className="text-sm text-amber-200 flex gap-2">
-                <span className="text-amber-500 flex-shrink-0">{i + 1}.</span>
-                {q}
-              </li>
-            ))}
-          </ul>
-
-          {/* Clarification input */}
-          <div className="flex items-start gap-2 mb-2">
-            <button
-              onClick={toggleRecording}
-              disabled={!isSpeechSupported()}
-              className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-all mt-0.5 ${
-                isRecording ? 'bg-red-500 animate-pulse' : 'bg-amber-700 hover:bg-amber-600 active:scale-95'
-              } disabled:opacity-40`}
-              aria-label={isRecording ? 'Stop' : 'Voice answer'}
-            >
-              <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3zm-1 1.93V19H9a1 1 0 000 2h6a1 1 0 000-2h-2v-2.07A5.003 5.003 0 0017 12v-1a1 1 0 00-2 0v1a3 3 0 01-6 0v-1a1 1 0 00-2 0v1a5.003 5.003 0 004 4.93z"/>
-              </svg>
-            </button>
-            <textarea
-              value={clarNote}
-              onChange={e => setClarNote(e.target.value)}
-              placeholder="Speak or type your answers…"
-              rows={2}
-              className="flex-1 bg-amber-950/40 border border-amber-700/40 rounded-xl px-3 py-2 text-sm text-amber-100 placeholder-amber-700 outline-none focus:ring-2 focus:ring-amber-500 resize-none"
-            />
-          </div>
-          <button
-            onClick={handleReanalyze}
-            disabled={!clarNote.trim()}
-            className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
-          >
-            Re-analyze with this info
-          </button>
-        </section>
-      )}
 
       {/* Save / Discard */}
       <div className="mx-4 mt-5 flex gap-3">
