@@ -27,25 +27,19 @@ export function progressBgColor(value, goal) {
   return 'bg-red-500'
 }
 
-// Symmetric red→green gradient centered at 100% of goal.
-// Used for macro values in the Dashboard — mirrors the calorie colour logic
-// but also penalises being well under goal (red at <55%, orange, amber, green at ~100%).
-export function macroProgressColor(value, goal) {
-  if (!goal) return 'text-pine-400'
+// Smooth HSL gradient centered at 100% of goal, symmetric in both directions.
+// 70% → light yellow-green, 80% → green, 90–110% → emerald, then mirrors back to red.
+export function macroProgressColorStyle(value, goal) {
+  if (!goal) return undefined
   const d = Math.abs((value / goal) * 100 - 100)
-  if (d <= 10) return 'text-emerald-400'
-  if (d <= 25) return 'text-amber-400'
-  if (d <= 45) return 'text-orange-400'
-  return 'text-red-400'
-}
-
-export function macroProgressBgColor(value, goal) {
-  if (!goal) return 'bg-pine-600'
-  const d = Math.abs((value / goal) * 100 - 100)
-  if (d <= 10) return 'bg-emerald-500'
-  if (d <= 25) return 'bg-amber-500'
-  if (d <= 45) return 'bg-orange-500'
-  return 'bg-red-500'
+  let hue
+  if (d <= 10)      hue = 145                              // 90–110%: emerald
+  else if (d <= 20) hue = 145 - (d - 10) * 3              // →115 green
+  else if (d <= 30) hue = 115 - (d - 20) * 3              // →85  yellow-green
+  else if (d <= 45) hue = 85  - (d - 30) * 2.33           // →50  amber
+  else if (d <= 55) hue = 50  - (d - 45) * 2.5            // →25  orange
+  else              hue = Math.max(0, 25 - (d - 55) * 1.25) // →0  red
+  return `hsl(${Math.round(hue)}, 68%, 55%)`
 }
 
 export function formatDate(dateStr) {

@@ -49,7 +49,7 @@ export default function Tips({ refreshKey }) {
   return (
     <div className="h-full overflow-y-auto">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-cream-100 dark:bg-pine-950 px-4 pt-4 pb-3 border-b border-cream-200 dark:border-pine-800">
+      <div className="sticky top-0 z-10 bg-cream-100 dark:bg-pine-950 px-4 pb-3 border-b border-cream-200 dark:border-pine-800" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top, 1rem))' }}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Lightbulb size={20} className="text-amber-500" />
