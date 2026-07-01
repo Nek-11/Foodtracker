@@ -470,18 +470,18 @@ export default function LogScreen({ onMealSubmitted }) {
       </section>
 
       {/* Secondary inputs — compact chip row */}
-      <div className="mx-4 mt-3 flex gap-2 flex-wrap">
+      <div className="mx-4 mt-3 flex gap-2">
         {!scannedProduct && (
           <button
             onClick={openBarcodeScanner}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800 text-xs font-medium text-pine-600 dark:text-pine-300 active:bg-cream-100 dark:active:bg-pine-800 transition-colors"
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800 text-xs font-medium text-pine-600 dark:text-pine-300 active:bg-cream-100 dark:active:bg-pine-800 transition-colors"
           >
             <ScanBarcode size={13} />
             Scan barcode
           </button>
         )}
         {labelImage ? (
-          <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-pine-100 dark:bg-pine-800 border border-pine-200 dark:border-pine-700 text-xs text-pine-700 dark:text-pine-300">
+          <div className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-pine-100 dark:bg-pine-800 border border-pine-200 dark:border-pine-700 text-xs text-pine-700 dark:text-pine-300">
             <FileText size={13} className="flex-shrink-0 text-pine-500" />
             <span>Label added</span>
             <button
@@ -493,7 +493,7 @@ export default function LogScreen({ onMealSubmitted }) {
           </div>
         ) : (
           <label htmlFor="label-input"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800 text-xs font-medium text-pine-600 dark:text-pine-300 active:bg-cream-100 dark:active:bg-pine-800 transition-colors cursor-pointer"
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-cream-50 dark:bg-pine-900 border border-cream-200 dark:border-pine-800 text-xs font-medium text-pine-600 dark:text-pine-300 active:bg-cream-100 dark:active:bg-pine-800 transition-colors cursor-pointer"
           >
             <FileText size={13} />
             Nutrition label

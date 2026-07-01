@@ -49,19 +49,17 @@ export default function Tips({ refreshKey }) {
   return (
     <div className="h-full overflow-y-auto">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-cream-100 dark:bg-pine-950 px-4 pb-3 border-b border-cream-200 dark:border-pine-800" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top, 1rem))' }}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Lightbulb size={20} className="text-amber-500" />
-            <h1 className="text-xl font-bold text-pine-900 dark:text-pine-100 font-display">Tips</h1>
-          </div>
+      <div className="sticky top-0 z-10 bg-cream-100 dark:bg-pine-950 pl-4 pr-14 pb-3 border-b border-cream-200 dark:border-pine-800" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top, 1rem))' }}>
+        <div className="flex items-center gap-3">
+          <Lightbulb size={20} className="text-amber-500" />
+          <h1 className="text-xl font-bold text-pine-900 dark:text-pine-100 font-display">Tips</h1>
           {status === 'done' && (
             <button
               onClick={() => tryLoad(true)}
-              className="p-2 rounded-full text-pine-400 dark:text-pine-500 hover:text-pine-600 dark:hover:text-pine-300 active:opacity-70"
+              className="ml-auto p-1.5 rounded-full text-pine-400 dark:text-pine-500 hover:text-pine-600 dark:hover:text-pine-300 active:opacity-70"
               aria-label="Regenerate tips"
             >
-              <RefreshCw size={16} />
+              <RefreshCw size={15} />
             </button>
           )}
         </div>
