@@ -285,7 +285,10 @@ export default function History({ refreshKey, onRefresh }) {
   return (
     <PullToRefresh onRefresh={refresh} className="flex flex-col h-full overflow-y-auto scroll-touch pb-8 relative">
       <div className="px-4 pb-2 pt-safe">
-        <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">History</h1>
+        <div className="flex items-center gap-2">
+          <ClipboardList size={20} className="text-indigo-500" />
+          <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">History</h1>
+        </div>
         <p className="text-sm mt-0.5 text-cream-500 dark:text-pine-400">
           {isFiltering
             ? `${filteredMeals.length} of ${meals.length}`

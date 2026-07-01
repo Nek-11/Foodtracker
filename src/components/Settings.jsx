@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Eye, EyeOff, Download, Upload, Clock, ChevronDown, ChevronUp, Plus, X, ExternalLink } from 'lucide-react'
+import { Eye, EyeOff, Download, Upload, Clock, ChevronDown, ChevronUp, Plus, X, ExternalLink, Settings as SettingsIcon } from 'lucide-react'
 import {
   getSettings, saveSettings,
   getGoals,    saveGoals,
@@ -127,7 +127,10 @@ export default function Settings({ onRefresh }) {
     <div className="flex flex-col h-full overflow-y-auto scroll-touch pb-8">
 
       <div className="px-4 pb-2 pt-safe">
-        <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">Settings</h1>
+        <div className="flex items-center gap-2">
+          <SettingsIcon size={20} className="text-pine-400 dark:text-pine-500" />
+          <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">Settings</h1>
+        </div>
       </div>
 
       {/* AI Provider */}

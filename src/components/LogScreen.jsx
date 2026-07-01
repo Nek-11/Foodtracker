@@ -402,7 +402,10 @@ export default function LogScreen({ onMealSubmitted }) {
 
       {/* Header */}
       <div className="px-4 pb-2 pt-safe">
-        <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">Log a Meal</h1>
+        <div className="flex items-center gap-2">
+          <Camera size={20} className="text-emerald-500" />
+          <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">Log a Meal</h1>
+        </div>
         <p className="text-sm mt-0.5 text-cream-500 dark:text-pine-400">Photo, voice note, or description</p>
       </div>
 

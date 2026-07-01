@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, X, BarChart2 } from 'lucide-react'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
   Tooltip, ReferenceLine, BarChart, Bar, Cell
@@ -175,7 +175,10 @@ export default function Dashboard({ refreshKey, onRefresh }) {
 
       {/* Header with date picker */}
       <div className="px-4 pb-2 pt-safe">
-        <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">Stats</h1>
+        <div className="flex items-center gap-2">
+          <BarChart2 size={20} className="text-sky-500" />
+          <h1 className="font-display text-2xl font-bold text-pine-900 dark:text-cream-100">Stats</h1>
+        </div>
         <div className="flex items-center gap-1 mt-1">
           <button
             onClick={() => goDay(-1)}
